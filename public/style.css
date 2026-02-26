@@ -1540,6 +1540,120 @@ body::after {
   color: var(--text);
 }
 
+/* Prose content styles for assistant messages */
+.message.assistant table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 14px;
+  max-width: 100%;
+}
+
+.message.assistant th,
+.message.assistant td {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.message.assistant th {
+  background: var(--bg);
+  color: var(--neon-cyan);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.message.assistant tr:nth-child(even) td {
+  background: var(--bg);
+}
+
+.message.assistant tr:nth-child(odd) td {
+  background: var(--bg-light);
+}
+
+.message.assistant h1,
+.message.assistant h2 {
+  color: var(--neon-cyan);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  margin: 20px 0 10px;
+  font-weight: 700;
+}
+
+.message.assistant h1 { font-size: 1.4em; }
+.message.assistant h2 { font-size: 1.25em; }
+
+.message.assistant h3 {
+  font-size: 1.1em;
+  color: var(--text);
+  margin: 16px 0 8px;
+  font-weight: 600;
+}
+
+.message.assistant h4,
+.message.assistant h5,
+.message.assistant h6 {
+  font-size: 1.05em;
+  color: var(--text);
+  margin: 14px 0 6px;
+  letter-spacing: 0.3px;
+  font-weight: 600;
+}
+
+/* Remove top margin when heading is first child */
+.message.assistant h1:first-child,
+.message.assistant h2:first-child,
+.message.assistant h3:first-child {
+  margin-top: 0;
+}
+
+.message.assistant p {
+  margin: 0 0 12px;
+}
+
+.message.assistant p:last-child {
+  margin-bottom: 0;
+}
+
+.message.assistant ul,
+.message.assistant ol {
+  padding-left: 1.5em;
+  margin: 0 0 12px;
+}
+
+.message.assistant li {
+  margin-bottom: 4px;
+  line-height: 1.6;
+}
+
+/* Nested lists: no extra bottom margin, tighter indent */
+.message.assistant li > ul,
+.message.assistant li > ol {
+  margin-bottom: 0;
+  padding-left: 1.25em;
+  margin-top: 4px;
+}
+
+.message.assistant blockquote {
+  border-left: 3px solid var(--neon-purple);
+  padding: 4px 0 4px 12px;
+  margin: 12px 0;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.message.assistant blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.message.assistant hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
+}
+
 /* File Links */
 .file-link {
   color: var(--neon-cyan);
