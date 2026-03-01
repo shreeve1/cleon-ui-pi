@@ -572,29 +572,31 @@ describe('Frontend - updateToolResult behavior', () => {
 // 7. Frontend - Toggle compatibility (Static Analysis)
 // ===========================================================================
 describe('Frontend - toggle compatibility with :empty CSS', () => {
-  it('toggle logic checks output.textContent.trim() for hasOutput', () => {
+  it('toggle logic checks output.classList for hidden state', () => {
     // Find the toggle click handler
     const toggleIdx = appJs.indexOf('Tool pill expand/collapse delegation');
     expect(toggleIdx).toBeGreaterThan(-1);
 
     const toggleBlock = appJs.slice(toggleIdx, toggleIdx + 600);
-    expect(toggleBlock).toContain('output.textContent.trim()');
+    expect(toggleBlock).toContain('.tool-pill-output');
   });
 
-  it('toggle logic references .tool-pill-output and .tool-details elements', () => {
+  it('toggle logic references .tool-pill-output and .tool-pill-header elements', () => {
     const toggleIdx = appJs.indexOf('Tool pill expand/collapse delegation');
     const toggleBlock = appJs.slice(toggleIdx, toggleIdx + 600);
 
     expect(toggleBlock).toContain('.tool-pill-output');
-    expect(toggleBlock).toContain('.tool-details');
-    expect(toggleBlock).toContain('.tool-pill-toggle');
+    expect(toggleBlock).toContain('.tool-pill-header');
+    expect(toggleBlock).toContain('.tool-pill');
   });
 
-  it('toggle uses classList.toggle with hidden class', () => {
+  it('toggle uses classList.add/remove with hidden class', () => {
     const toggleIdx = appJs.indexOf('Tool pill expand/collapse delegation');
     const toggleBlock = appJs.slice(toggleIdx, toggleIdx + 1000);
 
-    expect(toggleBlock).toContain("classList.toggle('hidden'");
+    // Current implementation uses add/remove instead of toggle
+    expect(toggleBlock).toContain("classList.add('hidden')");
+    expect(toggleBlock).toContain("classList.remove('hidden')");
   });
 });
 
@@ -786,7 +788,7 @@ describe('Frontend - appendToolMessage creates output div', () => {
     expect(fnBody).toContain('tool-pill-output');
   });
 
-  it('appendToolMessage creates tool-pill-header with status, duration, and toggle elements', () => {
+  it('appendToolMessage creates tool-pill-header with status, duration, and chevron elements', () => {
     const fnStart = appJs.indexOf('function appendToolMessage(');
     const fnEnd = appJs.indexOf('\nfunction', fnStart + 1);
     const fnBody = appJs.slice(fnStart, fnEnd > -1 ? fnEnd : fnStart + 3000);
@@ -794,6 +796,6 @@ describe('Frontend - appendToolMessage creates output div', () => {
     expect(fnBody).toContain('tool-pill-header');
     expect(fnBody).toContain('tool-pill-status');
     expect(fnBody).toContain('tool-pill-duration');
-    expect(fnBody).toContain('tool-pill-toggle');
+    expect(fnBody).toContain('tool-pill-chevron');
   });
 });

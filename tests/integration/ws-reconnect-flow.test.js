@@ -161,16 +161,16 @@ describe('old WS subscription protocol removed (server/index.js)', () => {
     expect(indexJs).not.toMatch(/case\s*'subscribe'/);
   });
 
-  it('does not import isSessionActive from claude.js', () => {
-    const claudeImport = indexJs.match(/import\s*\{[^}]*\}\s*from\s*'\.\/claude\.js'/);
-    expect(claudeImport).toBeTruthy();
-    expect(claudeImport[0]).not.toContain('isSessionActive');
+  it('imports from omp.js not claude.js', () => {
+    const ompImport = indexJs.match(/import\s*\{[^}]*\}\s*from\s*'\.\/omp\.js'/);
+    expect(ompImport).toBeTruthy();
+    expect(ompImport[0]).toContain('handleChat');
   });
 
-  it('does not import resubscribeSession from claude.js', () => {
-    const claudeImport = indexJs.match(/import\s*\{[^}]*\}\s*from\s*'\.\/claude\.js'/);
-    expect(claudeImport).toBeTruthy();
-    expect(claudeImport[0]).not.toContain('resubscribeSession');
+  it('does not import isSessionActive or resubscribeSession', () => {
+    // These functions were removed as part of simplifying WS protocol
+    expect(indexJs).not.toContain('isSessionActive');
+    expect(indexJs).not.toContain('resubscribeSession');
   });
 
   it('does not send session-active type', () => {

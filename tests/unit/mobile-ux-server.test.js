@@ -140,12 +140,12 @@ describe('Static Analysis - server/claude.js structure', () => {
     expect(claudeJs).toContain('const DEFAULT_CONTEXT_WINDOW = 200000;');
   });
 
-  it('defines TOOL_OUTPUT_TRUNCATE_LENGTH = 500', () => {
-    expect(claudeJs).toContain('const TOOL_OUTPUT_TRUNCATE_LENGTH = 500;');
+  it('defines TOOL_OUTPUT_TRUNCATE_LENGTH = 1500', () => {
+    expect(claudeJs).toContain('const TOOL_OUTPUT_TRUNCATE_LENGTH = 1500');
   });
 
-  it('defines TOOL_SUMMARY_TRUNCATE_LENGTH = 100', () => {
-    expect(claudeJs).toContain('const TOOL_SUMMARY_TRUNCATE_LENGTH = 100;');
+  it('defines TOOL_SUMMARY_TRUNCATE_LENGTH = 200', () => {
+    expect(claudeJs).toContain('const TOOL_SUMMARY_TRUNCATE_LENGTH = 200');
   });
 
   it('extractTokenUsage returns object with used, contextWindow, and model fields', () => {

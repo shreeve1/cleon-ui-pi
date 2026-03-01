@@ -14,7 +14,7 @@ import rateLimit from 'express-rate-limit';
 import { authRoutes, authenticateToken, authenticateWebSocket } from './auth.js';
 import { projectRoutes } from './projects.js';
 import { fileRoutes } from './files.js';
-import { handleChat, handleAbort, handleQuestionResponse, handlePlanResponse } from './claude.js';
+import { handleChat, handleAbort, handleQuestionResponse, handlePlanResponse } from './omp.js';
 import { getAllCommands } from './commands.js';
 import { processUpload, validateFile } from './uploads.js';
 import logger from './logger.js';

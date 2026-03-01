@@ -43,27 +43,27 @@ describe('Token usage message flow (server -> client)', () => {
     expect(caseBody).toContain('session.model');
   });
 
-  it('client token-usage handler calls updateTokenUsage with used and contextWindow', () => {
+  it('client token-usage handler calls updateTokenUsage with message object', () => {
     const caseStart = appJs.indexOf("case 'token-usage':");
     const caseEnd = appJs.indexOf('break;', caseStart);
     const caseBody = appJs.slice(caseStart, caseEnd);
-    expect(caseBody).toContain('updateTokenUsage(msg.used, msg.contextWindow, session)');
+    expect(caseBody).toContain('updateTokenUsage(msg, session)');
   });
 
   it('updateTokenUsage computes percentage and sets context bar fill width', () => {
     const fnStart = appJs.indexOf('function updateTokenUsage(');
     const fnEnd = appJs.indexOf('\n}', fnStart);
     const fnBody = appJs.slice(fnStart, fnEnd);
-    expect(fnBody).toContain("Math.round((used / total) * 100)");
-    expect(fnBody).toContain("contextUsageFill.style.width = `${Math.min(pct, 100)}%`");
+    expect(fnBody).toContain('Math.round((totalTokens / windowSize) * 100)');
+    expect(fnBody).toContain('contextUsageFill.style.width = `${pct}%`');
   });
 
-  it('updateTokenUsage formats text as usedK/totalK', () => {
+  it('updateTokenUsage formats text as totalK/windowK', () => {
     const fnStart = appJs.indexOf('function updateTokenUsage(');
     const fnEnd = appJs.indexOf('\n}', fnStart);
     const fnBody = appJs.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('Math.round(used / 1000)');
-    expect(fnBody).toContain('Math.round(total / 1000)');
+    expect(fnBody).toContain('Math.round(totalTokens / 1000)');
+    expect(fnBody).toContain('Math.round(windowSize / 1000)');
   });
 
   it('updateTokenUsage shows model name when session.model is set', () => {
@@ -99,8 +99,8 @@ describe('Tool pill rendering flow', () => {
     const fnStart = appJs.indexOf('function appendToolMessage(');
     const fnEnd = appJs.indexOf('\n}', fnStart);
     const fnBody = appJs.slice(fnStart, fnEnd);
-    // Status is passed as parameter, running shows '...'
-    expect(fnBody).toContain("status === 'running' ? '...'");
+    // Status is passed as parameter, running shows ellipsis character
+    expect(fnBody).toContain("status === 'running' ? '⋯'");
   });
 
   it('appendToolMessage creates tool pill with icon from getToolIcon', () => {
@@ -299,13 +299,12 @@ describe('WebSocket protocol audit', () => {
     expect(fnBody).toContain('contextWindow');
     expect(fnBody).toContain('model');
 
-    // Client side uses all three
+    // Client side passes entire message to updateTokenUsage
     const caseStart = appJs.indexOf("case 'token-usage':");
     const caseEnd = appJs.indexOf('break;', caseStart);
     const caseBody = appJs.slice(caseStart, caseEnd);
     expect(caseBody).toContain('msg.model');
-    expect(caseBody).toContain('msg.used');
-    expect(caseBody).toContain('msg.contextWindow');
+    expect(caseBody).toContain('updateTokenUsage(msg, session)');
   });
 
   it('tool_use and tool_result message types are handled by client', () => {

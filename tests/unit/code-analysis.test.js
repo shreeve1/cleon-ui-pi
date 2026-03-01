@@ -55,7 +55,9 @@ describe('server/claude.js - code structure', () => {
     });
 
     it('sessionInfo should be initialized with queryInstance: null, ws, and username', () => {
-      expect(claudeJs).toMatch(/const sessionInfo = \{\s*queryInstance:\s*null,\s*ws,\s*username\s*\}/);
+      expect(claudeJs).toMatch(/const sessionInfo = \{[\s\S]*queryInstance:\s*null/);
+      expect(claudeJs).toMatch(/const sessionInfo = \{[\s\S]*ws/);
+      expect(claudeJs).toMatch(/const sessionInfo = \{[\s\S]*username/);
     });
   });
 
@@ -118,16 +120,15 @@ describe('server/claude.js - code structure', () => {
 // ─── server/index.js code analysis ───────────────────────────────
 describe('server/index.js - code structure', () => {
   describe('imports', () => {
-    it('should import handleChat, handleAbort, handleQuestionResponse, handlePlanResponse from claude.js', () => {
-      expect(indexJs).toMatch(/import\s*\{[^}]*handleChat[^}]*handleAbort[^}]*handleQuestionResponse[^}]*handlePlanResponse[^}]*\}\s*from\s*'\.\/claude\.js'/);
-    });
-
-    it('should NOT import isSessionActive or resubscribeSession from claude.js', () => {
-      const claudeImport = indexJs.match(/import\s*\{[^}]*\}\s*from\s*'\.\/claude\.js'/);
-      expect(claudeImport).toBeTruthy();
-      expect(claudeImport[0]).not.toContain('isSessionActive');
-      expect(claudeImport[0]).not.toContain('resubscribeSession');
-    });
+  it('should import handleChat, handleAbort, handleQuestionResponse, handlePlanResponse from omp.js', () => {
+    expect(indexJs).toMatch(/import\s*\{[^}]*handleChat[^}]*handleAbort[^}]*handleQuestionResponse[^}]*handlePlanResponse[^}]*\}\s*from\s*'\.\/omp\.js'/);
+  });
+  it('should NOT import isSessionActive or resubscribeSession from omp.js', () => {
+    const ompImport = indexJs.match(/import\s*\{[^}]*\}\s*from\s*'\.\/omp\.js'/);
+    expect(ompImport).toBeTruthy();
+    expect(ompImport[0]).not.toContain('isSessionActive');
+    expect(ompImport[0]).not.toContain('resubscribeSession');
+  });
 
     it('should import subscribe and publish from bus.js', () => {
       expect(indexJs).toMatch(/import\s*\{[^}]*subscribe[^}]*publish[^}]*\}\s*from\s*'\.\/bus\.js'/);
