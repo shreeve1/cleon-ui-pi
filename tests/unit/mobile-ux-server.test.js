@@ -1,5 +1,5 @@
 /**
- * Unit tests for mobile UX enhancements in server/claude.js
+ * Unit tests for mobile UX enhancements in server/pi-agent.js
  *
  * Tests extractTokenUsage, getToolSummary, truncateOutput, and transformMessage
  * functions. Since these are not exported, we use static analysis of the source
@@ -9,8 +9,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
-const claudeJsPath = resolve(import.meta.dirname, '../../server/claude.js');
-const claudeJs = readFileSync(claudeJsPath, 'utf-8');
+const piAgentJsPath = resolve(import.meta.dirname, '../../server/pi-agent.js');
+const piAgentJs = readFileSync(piAgentJsPath, 'utf-8');
 
 // ---------------------------------------------------------------------------
 // Re-implementations of private functions for testing
@@ -135,66 +135,57 @@ function transformMessage(msg) {
 // ===========================================================================
 // 1. Static Analysis - Source Code Structure Verification
 // ===========================================================================
-describe('Static Analysis - server/claude.js structure', () => {
+describe('Static Analysis - server/pi-agent.js structure', () => {
   it('defines DEFAULT_CONTEXT_WINDOW = 200000', () => {
-    expect(claudeJs).toContain('const DEFAULT_CONTEXT_WINDOW = 200000;');
+    expect(piAgentJs).toContain('const contextWindow = 200000');
   });
 
   it('defines TOOL_OUTPUT_TRUNCATE_LENGTH = 1500', () => {
-    expect(claudeJs).toContain('const TOOL_OUTPUT_TRUNCATE_LENGTH = 1500');
+    expect(piAgentJs).toContain('const TOOL_OUTPUT_TRUNCATE_LENGTH = 1500');
   });
 
   it('defines TOOL_SUMMARY_TRUNCATE_LENGTH = 200', () => {
-    expect(claudeJs).toContain('const TOOL_SUMMARY_TRUNCATE_LENGTH = 200');
+    expect(piAgentJs).toContain('const TOOL_SUMMARY_TRUNCATE_LENGTH = 200');
   });
 
-  it('extractTokenUsage returns object with used, contextWindow, and model fields', () => {
-    expect(claudeJs).toContain('used: cumulativeTotal');
-    expect(claudeJs).toContain('contextWindow,');
-    expect(claudeJs).toContain('model: modelKey,');
+  it('transformEvent extracts token usage from message events', () => {
+    expect(piAgentJs).toContain("type: '_token_usage'");
   });
 
-  it('extractTokenUsage aggregates all four token types', () => {
-    const fnStart = claudeJs.indexOf('function extractTokenUsage(');
-    const fnEnd = claudeJs.indexOf('\n}', fnStart);
-    const fnBody = claudeJs.slice(fnStart, fnEnd);
-
-    expect(fnBody).toContain('cumulativeInputTokens');
-    expect(fnBody).toContain('cumulativeOutputTokens');
-    expect(fnBody).toContain('cumulativeCacheReadInputTokens');
-    expect(fnBody).toContain('cumulativeCacheCreationInputTokens');
+  it('token usage includes context and model information', () => {
+    expect(piAgentJs).toContain("type: 'token-usage'");
   });
 
   it('processQueryStream sends token-usage message with model field', () => {
-    expect(claudeJs).toContain("type: 'token-usage'");
-    // Verify the spread operator includes all fields from extractTokenUsage
-    const tokenUsageSendStart = claudeJs.indexOf("type: 'token-usage'");
-    const sendBlock = claudeJs.slice(tokenUsageSendStart - 50, tokenUsageSendStart + 200);
-    expect(sendBlock).toContain('...usage');
+    expect(piAgentJs).toContain("type: 'token-usage'");
+    // Verify the spread operator includes all fields from transformed.usage
+    const tokenUsageSendStart = piAgentJs.indexOf("type: 'token-usage'");
+    const sendBlock = piAgentJs.slice(tokenUsageSendStart - 50, tokenUsageSendStart + 200);
+    expect(sendBlock).toContain('...transformed.usage');
   });
 
-  it('transformMessage handles assistant text, tool_use, user, and result types', () => {
-    const fnStart = claudeJs.indexOf('function transformMessage(');
-    const fnEnd = claudeJs.indexOf('\n  return null;\n}', fnStart);
-    const fnBody = claudeJs.slice(fnStart, fnEnd);
+  it('transformEvent handles message_update with assistant content', () => {
+    const fnStart = piAgentJs.indexOf('function transformEvent(');
+    expect(fnStart).toBeGreaterThan(-1);
+    const fnEnd = piAgentJs.indexOf('\nexport { transformEvent', fnStart);
+    const fnBody = piAgentJs.slice(fnStart, fnEnd);
 
-    expect(fnBody).toContain("msg.type === 'assistant'");
-    expect(fnBody).toContain("msg.type === 'user'");
-    expect(fnBody).toContain("msg.type === 'result'");
-    expect(fnBody).toContain("c.type === 'tool_use'");
-    expect(fnBody).toContain("c.type === 'text'");
+    expect(fnBody).toContain("case 'message_update'");
+    expect(fnBody).toContain("case 'turn_end'");
+    expect(fnBody).toContain("case 'agent_end'");
   });
 
-  it('transformMessage skips AskUserQuestion tool calls', () => {
-    expect(claudeJs).toContain("toolUse.name === 'AskUserQuestion'");
+  it('transformEvent handles extension_ui_request for questions', () => {
+    expect(piAgentJs).toContain("case 'extension_ui_request'");
+    expect(piAgentJs).toContain("type: 'question'");
   });
 
   it('tool formatters cover all expected tools', () => {
-    const formattersStart = claudeJs.indexOf('const toolFormatters = {');
+    const formattersStart = piAgentJs.indexOf('const toolFormatters = {');
     // Find the closing }; that follows the last formatter by searching for
     // the next function declaration after toolFormatters
-    const nextFnStart = claudeJs.indexOf('function getToolSummary', formattersStart);
-    const formattersBlock = claudeJs.slice(formattersStart, nextFnStart);
+    const nextFnStart = piAgentJs.indexOf('function getToolSummary', formattersStart);
+    const formattersBlock = piAgentJs.slice(formattersStart, nextFnStart);
 
     expect(formattersBlock).toContain('bash:');
     expect(formattersBlock).toContain('read:');

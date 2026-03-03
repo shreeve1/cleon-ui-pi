@@ -6,113 +6,108 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
-const claudeJs = readFileSync(resolve('server/claude.js'), 'utf8');
+const piAgentJs = readFileSync(resolve('server/pi-agent.js'), 'utf8');
 const indexJs = readFileSync(resolve('server/index.js'), 'utf8');
 const appJs = readFileSync(resolve('public/app.js'), 'utf8');
 
-// ─── server/claude.js code analysis ──────────────────────────────
-describe('server/claude.js - code structure', () => {
-  describe('sendMessage calls use sessionInfo.ws', () => {
-    it('should have NO sendMessage(ws, ...) calls (only sendMessage(sessionInfo.ws, ...))', () => {
-      const lines = claudeJs.split('\n');
-      const bareWsCalls = [];
-      const sessionInfoWsCalls = [];
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (line.startsWith('function sendMessage(ws,')) continue;
-
-        if (line.includes('sendMessage(ws,')) {
-          bareWsCalls.push({ line: i + 1, content: line });
-        }
-        if (line.includes('sendMessage(sessionInfo.ws,')) {
-          sessionInfoWsCalls.push({ line: i + 1, content: line });
-        }
-      }
-
-      expect(bareWsCalls).toEqual([]);
-      expect(sessionInfoWsCalls.length).toBeGreaterThanOrEqual(4);
+// ─── server/pi-agent.js code analysis ──────────────────────────────
+describe('server/pi-agent.js - code structure', () => {
+  describe('exports', () => {
+    it('should export handleChat function', () => {
+      expect(piAgentJs).toMatch(/export async function handleChat\(/);
     });
 
-    it('should have sendMessage calls for claude-message, token-usage, claude-done, error, and session-created', () => {
-      const expectedTypes = ['claude-message', 'token-usage', 'claude-done', 'error', 'session-created'];
-
-      for (const type of expectedTypes) {
-        const pattern = new RegExp(`sendMessage\\(sessionInfo\\.ws,\\s*\\{[^}]*type:\\s*'${type}'`);
-        expect(claudeJs).toMatch(pattern);
-      }
-    });
-  });
-
-  describe('sessionInfo declaration order', () => {
-    it('should declare sessionInfo BEFORE the options object', () => {
-      const sessionInfoIndex = claudeJs.indexOf('const sessionInfo = {');
-      const optionsIndex = claudeJs.indexOf('const options = {');
-
-      expect(sessionInfoIndex).toBeGreaterThan(-1);
-      expect(optionsIndex).toBeGreaterThan(-1);
-      expect(sessionInfoIndex).toBeLessThan(optionsIndex);
+    it('should export handleAbort function', () => {
+      expect(piAgentJs).toMatch(/export async function handleAbort\(/);
     });
 
-    it('sessionInfo should be initialized with queryInstance: null, ws, and username', () => {
-      expect(claudeJs).toMatch(/const sessionInfo = \{[\s\S]*queryInstance:\s*null/);
-      expect(claudeJs).toMatch(/const sessionInfo = \{[\s\S]*ws/);
-      expect(claudeJs).toMatch(/const sessionInfo = \{[\s\S]*username/);
+    it('should export handleQuestionResponse function', () => {
+      expect(piAgentJs).toMatch(/export async function handleQuestionResponse\(/);
     });
-  });
 
-  describe('resubscribeSession export', () => {
+    it('should export handlePlanResponse function', () => {
+      expect(piAgentJs).toMatch(/export async function handlePlanResponse\(/);
+    });
+
+    it('should export isSessionActive function', () => {
+      expect(piAgentJs).toMatch(/export function isSessionActive\(/);
+    });
+
     it('should export resubscribeSession function', () => {
-      expect(claudeJs).toMatch(/export function resubscribeSession\(/);
-    });
-
-    it('resubscribeSession should get sessionInfo from activeSessions and replace ws', () => {
-      expect(claudeJs).toMatch(/activeSessions\.get\(sessionId\)/);
-      expect(claudeJs).toMatch(/sessionInfo\.ws = newWs/);
+      expect(piAgentJs).toMatch(/export function resubscribeSession\(/);
     });
   });
 
-  describe('processQueryStream signature', () => {
-    it('should still accept sessionInfo as a parameter', () => {
-      expect(claudeJs).toMatch(/async function processQueryStream\(queryInstance,\s*ws,\s*sessionInfo,\s*onSessionId\)/);
+  describe('Pi binary configuration', () => {
+    it('should use PI_BINARY env var with default "pi"', () => {
+      expect(piAgentJs).toMatch(/PI_BINARY.*process\.env\.PI_BINARY.*||.*['"]pi['"]/);
     });
   });
 
-  describe('canUseTool uses sessionInfo.ws', () => {
-    it('should use sendMessage(sessionInfo.ws, ...) inside canUseTool callback', () => {
-      const canUseToolStart = claudeJs.indexOf('canUseTool:');
-      const canUseToolEnd = claudeJs.indexOf('// Allow all other tools', canUseToolStart);
-      const canUseToolSection = claudeJs.slice(canUseToolStart, canUseToolEnd);
+  describe('RpcClient spawn args', () => {
+    it('should include --mode rpc flag', () => {
+      expect(piAgentJs).toContain("'--mode'");
+      expect(piAgentJs).toContain("'rpc'");
+    });
 
-      expect(canUseToolSection).toContain('sendMessage(sessionInfo.ws,');
-      expect(canUseToolSection).not.toMatch(/sendMessage\(ws,/);
+    it('should support --session flag for session restoration', () => {
+      expect(piAgentJs).toContain("'--session'");
     });
   });
 
   describe('bus and registry integration', () => {
     it('should import publish from bus.js', () => {
-      expect(claudeJs).toMatch(/import\s*\{[^}]*publish[^}]*\}\s*from\s*'\.\/bus\.js'/);
+      expect(piAgentJs).toMatch(/import\s*\{[^}]*publish[^}]*\}\s*from\s*'\.\/bus\.js'/);
     });
 
     it('should import register and setStatus from session-registry.js', () => {
-      expect(claudeJs).toMatch(/import\s*\{[^}]*register[^}]*setStatus[^}]*\}\s*from\s*'\.\/session-registry\.js'/);
+      expect(piAgentJs).toMatch(/import\s*\{[^}]*register[^}]*setStatus[^}]*\}\s*from\s*'\.\/session-registry\.js'/);
     });
 
     it('handleChat should accept username parameter', () => {
-      expect(claudeJs).toMatch(/export async function handleChat\(msg,\s*ws,\s*username\)/);
+      expect(piAgentJs).toMatch(/export async function handleChat\(msg,\s*ws,\s*username\)/);
+    });
+  });
+
+  describe('transformEvent handles Pi events', () => {
+    it('should handle message_update events', () => {
+      expect(piAgentJs).toMatch(/case\s*'message_update'/);
     });
 
-    it('sendMessage should accept username parameter', () => {
-      expect(claudeJs).toMatch(/function sendMessage\(ws,\s*data,\s*username\)/);
+    it('should handle tool_execution_start events', () => {
+      expect(piAgentJs).toMatch(/case\s*'tool_execution_start'/);
     });
 
-    it('sendMessage should call broadcastToSession and publish', () => {
-      const fnStart = claudeJs.indexOf('function sendMessage(ws, data, username)');
-      const fnEnd = claudeJs.indexOf('\n}', fnStart);
-      const fnBody = claudeJs.slice(fnStart, fnEnd);
+    it('should handle tool_execution_end events', () => {
+      expect(piAgentJs).toMatch(/case\s*'tool_execution_end'/);
+    });
 
-      expect(fnBody).toContain('broadcastToSession(data.sessionId, data)');
-      expect(fnBody).toContain('publish(username, data)');
+    it('should handle extension_ui_request events', () => {
+      expect(piAgentJs).toMatch(/case\s*'extension_ui_request'/);
+    });
+
+    it('should handle turn_end events', () => {
+      expect(piAgentJs).toMatch(/case\s*'turn_end'/);
+    });
+
+    it('should handle agent_end events', () => {
+      expect(piAgentJs).toMatch(/case\s*'agent_end'/);
+    });
+
+    it('should handle auto_compaction_start events (Pi-specific)', () => {
+      expect(piAgentJs).toMatch(/case\s*'auto_compaction_start'/);
+    });
+
+    it('should handle auto_compaction_end events (Pi-specific)', () => {
+      expect(piAgentJs).toMatch(/case\s*'auto_compaction_end'/);
+    });
+
+    it('should handle auto_retry_start events (Pi-specific)', () => {
+      expect(piAgentJs).toMatch(/case\s*'auto_retry_start'/);
+    });
+
+    it('should handle auto_retry_end events (Pi-specific)', () => {
+      expect(piAgentJs).toMatch(/case\s*'auto_retry_end'/);
     });
   });
 });
@@ -120,14 +115,14 @@ describe('server/claude.js - code structure', () => {
 // ─── server/index.js code analysis ───────────────────────────────
 describe('server/index.js - code structure', () => {
   describe('imports', () => {
-  it('should import handleChat, handleAbort, handleQuestionResponse, handlePlanResponse from omp.js', () => {
-    expect(indexJs).toMatch(/import\s*\{[^}]*handleChat[^}]*handleAbort[^}]*handleQuestionResponse[^}]*handlePlanResponse[^}]*\}\s*from\s*'\.\/omp\.js'/);
+  it('should import handleChat, handleAbort, handleQuestionResponse, handlePlanResponse from pi-agent.js', () => {
+    expect(indexJs).toMatch(/import\s*\{[^}]*handleChat[^}]*handleAbort[^}]*handleQuestionResponse[^}]*handlePlanResponse[^}]*\}\s*from\s*'\.\/pi-agent\.js'/);
   });
-  it('should NOT import isSessionActive or resubscribeSession from omp.js', () => {
-    const ompImport = indexJs.match(/import\s*\{[^}]*\}\s*from\s*'\.\/omp\.js'/);
-    expect(ompImport).toBeTruthy();
-    expect(ompImport[0]).not.toContain('isSessionActive');
-    expect(ompImport[0]).not.toContain('resubscribeSession');
+  it('should NOT import isSessionActive or resubscribeSession from pi-agent.js', () => {
+    const piImport = indexJs.match(/import\s*\{[^}]*\}\s*from\s*'\.\/pi-agent\.js'/);
+    expect(piImport).toBeTruthy();
+    expect(piImport[0]).not.toContain('isSessionActive');
+    expect(piImport[0]).not.toContain('resubscribeSession');
   });
 
     it('should import subscribe and publish from bus.js', () => {

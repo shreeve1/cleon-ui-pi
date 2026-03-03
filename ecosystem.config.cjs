@@ -60,7 +60,7 @@ module.exports = {
       max_memory_restart: '500M',
       env: {
         NODE_ENV: 'production',
-        PORT: 3010,
+        PORT: 3015,
         HOST: '0.0.0.0',
         ...claudeSettings // Load Anthropic settings dynamically
       },

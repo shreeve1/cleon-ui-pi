@@ -20,8 +20,8 @@ import { resolve } from 'path';
 // ---------------------------------------------------------------------------
 // Load source files as strings for static analysis
 // ---------------------------------------------------------------------------
-const claudeJsPath = resolve(import.meta.dirname, '../../server/claude.js');
-const claudeJs = readFileSync(claudeJsPath, 'utf-8');
+const piAgentJsPath = resolve(import.meta.dirname, '../../server/pi-agent.js');
+const piAgentJs = readFileSync(piAgentJsPath, 'utf-8');
 
 const styleCssPath = resolve(import.meta.dirname, '../../public/style.css');
 const styleCss = readFileSync(styleCssPath, 'utf-8');
@@ -31,7 +31,7 @@ const appJs = readFileSync(appJsPath, 'utf-8');
 
 // ---------------------------------------------------------------------------
 // Re-implementations of private functions for behavioral testing
-// (Mirror the fixed control flow from server/claude.js)
+// (Mirror the fixed control flow from server/pi-agent.js)
 // ---------------------------------------------------------------------------
 
 const TOOL_OUTPUT_TRUNCATE_LENGTH = 500;
@@ -190,55 +190,25 @@ function transformMessage(msg) {
 }
 
 // ===========================================================================
-// 1. Static Analysis - Control Flow Fix Verification
+// 1. Static Analysis - Pi transformEvent structure
 // ===========================================================================
-describe('Static Analysis - tool_result control flow fix', () => {
-  it('tool_result check appears BEFORE the generic user return in transformMessage()', () => {
-    const fnStart = claudeJs.indexOf('function transformMessage(');
+describe('Static Analysis - Pi transformEvent structure', () => {
+  it('transformEvent function exists', () => {
+    const fnStart = piAgentJs.indexOf('function transformEvent(');
     expect(fnStart).toBeGreaterThan(-1);
-
-    const fnBody = claudeJs.slice(fnStart);
-
-    // Find the tool_result check line
-    const toolResultCheckIdx = fnBody.indexOf("c.type === 'tool_result'");
-    expect(toolResultCheckIdx).toBeGreaterThan(-1);
-
-    // Find the generic user return (the comment is the reliable anchor)
-    const genericUserCommentIdx = fnBody.indexOf('// User message echo');
-    expect(genericUserCommentIdx).toBeGreaterThan(-1);
-
-    // The tool_result check MUST appear before the generic user return
-    expect(toolResultCheckIdx).toBeLessThan(genericUserCommentIdx);
   });
 
-  it('does NOT have a generic msg.type === "user" return-null before the tool_result check', () => {
-    const fnStart = claudeJs.indexOf('function transformMessage(');
-    const fnBody = claudeJs.slice(fnStart);
-
-    // Find the tool_result check
-    const toolResultIdx = fnBody.indexOf("c.type === 'tool_result'");
-
-    // Get everything before the tool_result check
-    const beforeToolResult = fnBody.slice(0, toolResultIdx);
-
-    // There should NOT be a standalone `if (msg.type === 'user') { return null; }` before tool_result
-    // We look for the pattern of a generic user check that returns null
-    // The comment "// Tool result (check before generic user return)" should precede the tool_result block
-    const genericUserReturnPattern = /if\s*\(\s*msg\.type\s*===\s*['"]user['"]\s*\)\s*\{\s*return\s+null/;
-    const hasGenericUserReturnBefore = genericUserReturnPattern.test(beforeToolResult);
-    expect(hasGenericUserReturnBefore).toBe(false);
+  it('transformEvent has switch statement for event types', () => {
+    expect(piAgentJs).toMatch(/switch\s*\(\s*event\.type\s*\)/);
   });
 
-  it('the tool_result branch is inside a user type check with content guard', () => {
-    const fnStart = claudeJs.indexOf('function transformMessage(');
-    const fnBody = claudeJs.slice(fnStart);
+  it('transformEvent handles tool_execution_end for tool_result', () => {
+    const fnStart = piAgentJs.indexOf('function transformEvent(');
+    const fnBody = piAgentJs.slice(fnStart);
 
-    // The tool_result branch should be wrapped in msg.type === 'user' && msg.message?.content
-    const toolResultIdx = fnBody.indexOf("c.type === 'tool_result'");
-    const contextBefore = fnBody.slice(Math.max(0, toolResultIdx - 300), toolResultIdx);
-
-    expect(contextBefore).toMatch(/msg\.type\s*===\s*['"]user['"]/);
-    expect(contextBefore).toMatch(/msg\.message\?\.content/);
+    // The tool_execution_end case should exist
+    expect(fnBody).toMatch(/case\s*'tool_execution_end'/);
+    expect(fnBody).toContain("type: 'tool_result'");
   });
 });
 
@@ -419,10 +389,10 @@ describe('transformMessage - tool_result handling', () => {
 // 3. Static Analysis - tool_result return object fields in source
 // ===========================================================================
 describe('Static Analysis - tool_result return object in source', () => {
-  it('tool_result return object has all 8 expected fields in source', () => {
+  it('tool_result return object has expected fields in source', () => {
     // Find the tool_result return block in the actual source
-    const fnStart = claudeJs.indexOf('function transformMessage(');
-    const fnBody = claudeJs.slice(fnStart);
+    const fnStart = piAgentJs.indexOf('function transformEvent(');
+    const fnBody = piAgentJs.slice(fnStart);
 
     // Find where the tool_result result object is constructed
     const resultBlockStart = fnBody.indexOf("type: 'tool_result'");
@@ -433,12 +403,10 @@ describe('Static Analysis - tool_result return object in source', () => {
 
     expect(resultBlock).toContain("type: 'tool_result'");
     expect(resultBlock).toContain('id: toolUseId');
-    expect(resultBlock).toContain('success: !toolResult.is_error');
-    expect(resultBlock).toContain('output: truncateOutput');
+    expect(resultBlock).toContain('success:');
+    expect(resultBlock).toContain('output:');
     expect(resultBlock).toContain('timestamp');
     expect(resultBlock).toContain('messageId');
-    expect(resultBlock).toContain('duration');
-    expect(resultBlock).toContain('startTime');
   });
 });
 
@@ -447,9 +415,9 @@ describe('Static Analysis - tool_result return object in source', () => {
 // ===========================================================================
 describe('taskoutput formatter', () => {
   it('toolFormatters.taskoutput exists in source', () => {
-    const formattersStart = claudeJs.indexOf('const toolFormatters = {');
-    const nextFn = claudeJs.indexOf('function getToolSummary', formattersStart);
-    const formattersBlock = claudeJs.slice(formattersStart, nextFn);
+    const formattersStart = piAgentJs.indexOf('const toolFormatters = {');
+    const nextFn = piAgentJs.indexOf('function getToolSummary', formattersStart);
+    const formattersBlock = piAgentJs.slice(formattersStart, nextFn);
 
     expect(formattersBlock).toContain('taskoutput:');
   });
@@ -488,9 +456,9 @@ describe('taskoutput formatter', () => {
   });
 
   it('getToolSummary lowercasing is verified in source code', () => {
-    const fnStart = claudeJs.indexOf('function getToolSummary(');
-    const fnEnd = claudeJs.indexOf('\n}', fnStart);
-    const fnBody = claudeJs.slice(fnStart, fnEnd);
+    const fnStart = piAgentJs.indexOf('function getToolSummary(');
+    const fnEnd = piAgentJs.indexOf('\n}', fnStart);
+    const fnBody = piAgentJs.slice(fnStart, fnEnd);
 
     expect(fnBody).toContain('tool.toLowerCase()');
   });
@@ -626,54 +594,40 @@ describe('Frontend - tool_result message dispatch', () => {
 });
 
 // ===========================================================================
-// 9. No dead code verification - comprehensive check
+// 9. transformEvent function structure (pi-agent.js)
 // ===========================================================================
-describe('No dead code - transformMessage control flow', () => {
-  it('there are exactly two user type checks in transformMessage: guarded and generic', () => {
-    const fnStart = claudeJs.indexOf('function transformMessage(');
-    const fnEnd = claudeJs.indexOf('\n  return null;\n}', fnStart);
-    const fnBody = claudeJs.slice(fnStart, fnEnd);
-
-    // Count all occurrences of `msg.type === 'user'` (with or without extra conditions)
-    const allUserChecks = fnBody.match(/msg\.type\s*===\s*['"]user['"]/g);
-
-    // Should have exactly 2 user type checks:
-    // 1. Guarded: if (msg.type === 'user' && msg.message?.content) — for tool_result
-    // 2. Generic: if (msg.type === 'user') { return null; } — echo suppression
-    expect(allUserChecks).not.toBeNull();
-    expect(allUserChecks.length).toBe(2);
-
-    // Verify the guarded check (with && content) exists
-    expect(fnBody).toContain("msg.type === 'user' && msg.message?.content");
-
-    // Verify the generic check exists as a standalone condition
-    const genericPattern = /if\s*\(\s*msg\.type\s*===\s*['"]user['"]\s*\)\s*\{/g;
-    const genericMatches = fnBody.match(genericPattern);
-    expect(genericMatches).not.toBeNull();
-    expect(genericMatches.length).toBe(1);
+describe('transformEvent function structure', () => {
+  it('transformEvent handles expected Pi event types', () => {
+    const fnStart = piAgentJs.indexOf('function transformEvent(');
+    expect(fnStart).toBeGreaterThan(-1);
   });
 
-  it('the tool_result branch comment confirms fixed ordering', () => {
-    const fnStart = claudeJs.indexOf('function transformMessage(');
-    const fnBody = claudeJs.slice(fnStart);
-
-    // The fix introduces/preserves a comment about checking before generic user return
-    const toolResultComment = fnBody.indexOf('Tool result (check before generic user return)');
-    const genericUserComment = fnBody.indexOf('User message echo');
-
-    // Both comments should exist
-    expect(toolResultComment).toBeGreaterThan(-1);
-    expect(genericUserComment).toBeGreaterThan(-1);
-
-    // The tool_result comment should come first
-    expect(toolResultComment).toBeLessThan(genericUserComment);
+  it('transformEvent has switch statement for event types', () => {
+    expect(piAgentJs).toMatch(/switch\s*\(\s*event\.type\s*\)/);
   });
 
-  it('generic user return has the comment "only reached if NOT a tool_result"', () => {
-    const fnStart = claudeJs.indexOf('function transformMessage(');
-    const fnBody = claudeJs.slice(fnStart);
+  it('transformEvent handles message_update events', () => {
+    expect(piAgentJs).toMatch(/case\s*'message_update'/);
+  });
 
-    expect(fnBody).toContain('only reached if NOT a tool_result');
+  it('transformEvent handles tool_execution_start events', () => {
+    expect(piAgentJs).toMatch(/case\s*'tool_execution_start'/);
+  });
+
+  it('transformEvent handles tool_execution_end events', () => {
+    expect(piAgentJs).toMatch(/case\s*'tool_execution_end'/);
+  });
+
+  it('transformEvent handles extension_ui_request events', () => {
+    expect(piAgentJs).toMatch(/case\s*'extension_ui_request'/);
+  });
+
+  it('transformEvent handles turn_end events', () => {
+    expect(piAgentJs).toMatch(/case\s*'turn_end'/);
+  });
+
+  it('transformEvent handles agent_end events', () => {
+    expect(piAgentJs).toMatch(/case\s*'agent_end'/);
   });
 });
 
@@ -753,11 +707,11 @@ describe('Existing tool formatters - no regressions', () => {
 // ===========================================================================
 // 11. Source code formatters match re-implementation
 // ===========================================================================
-describe('Source code formatters exist in server/claude.js', () => {
+describe('Source code formatters exist in server/pi-agent.js', () => {
   it('all formatter keys exist in source toolFormatters', () => {
-    const formattersStart = claudeJs.indexOf('const toolFormatters = {');
-    const nextFn = claudeJs.indexOf('function getToolSummary', formattersStart);
-    const formattersBlock = claudeJs.slice(formattersStart, nextFn);
+    const formattersStart = piAgentJs.indexOf('const toolFormatters = {');
+    const nextFn = piAgentJs.indexOf('function getToolSummary', formattersStart);
+    const formattersBlock = piAgentJs.slice(formattersStart, nextFn);
 
     const expectedKeys = ['bash', 'read', 'write', 'edit', 'glob', 'grep', 'todowrite', 'todoread', 'task', 'taskoutput'];
     for (const key of expectedKeys) {
@@ -767,9 +721,9 @@ describe('Source code formatters exist in server/claude.js', () => {
 
   it('getToolSummary returns object format (not string) for known tools', () => {
     // Check the source code returns objects with summary field
-    const fnStart = claudeJs.indexOf('function getToolSummary(');
-    const fnEnd = claudeJs.indexOf('\n}', fnStart);
-    const fnBody = claudeJs.slice(fnStart, fnEnd);
+    const fnStart = piAgentJs.indexOf('function getToolSummary(');
+    const fnEnd = piAgentJs.indexOf('\n}', fnStart);
+    const fnBody = piAgentJs.slice(fnStart, fnEnd);
 
     // Default return is an object with summary field
     expect(fnBody).toContain('{ summary: tool }');

@@ -14,13 +14,15 @@ import rateLimit from 'express-rate-limit';
 import { authRoutes, authenticateToken, authenticateWebSocket } from './auth.js';
 import { projectRoutes } from './projects.js';
 import { fileRoutes } from './files.js';
-import { handleChat, handleAbort, handleQuestionResponse, handlePlanResponse } from './omp.js';
+import { handleChat, handleAbort, handleQuestionResponse, handlePlanResponse } from './pi-agent.js';
 import { getAllCommands } from './commands.js';
 import { processUpload, validateFile } from './uploads.js';
 import logger from './logger.js';
 import { subscribe, publish } from './bus.js';
 import { getSessionsForUser } from './session-registry.js';
 import { replayBufferToSSE } from './broadcast.js';
+import { errorHandler, notFoundHandler } from './errors.js';
+import rpcSessionManager from './session-manager-instance.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -31,13 +33,16 @@ const server = http.createServer(app);
 
 // Security middleware
 app.use(helmet({
+  hsts: false, // Disable HSTS for local network HTTP access
+  crossOriginOpenerPolicy: false, // Disable COOP for HTTP (requires HTTPS)
+  crossOriginResourcePolicy: false, // Disable CORP for HTTP
   contentSecurityPolicy: {
     directives: {
-      defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
       scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],
-      connectSrc: ["'self'", "ws:", "wss:"],
-      imgSrc: ["'self'", "data:", "blob:", "https://cdn.jsdelivr.net"]
+      connectSrc: ["'self'", "ws:", "wss:", "https://cdn.jsdelivr.net"],
+      imgSrc: ["'self'", "data:", "blob:", "https://cdn.jsdelivr.net"],
+      upgradeInsecureRequests: null // Disable for HTTP local network access
     }
   }
 }));
@@ -215,6 +220,8 @@ app.get('*', (req, res) => {
   }
 });
 
+// Global error handler (must be after all routes)
+app.use(errorHandler);
 // WebSocket server with origin validation
 const wss = new WebSocketServer({
   server,
@@ -350,18 +357,39 @@ server.listen(PORT, HOST, () => {
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down...');
-  server.close(() => {
-    logger.info('Server closed');
-    process.exit(0);
-  });
-});
+async function gracefulShutdown(signal) {
+  logger.info(`${signal} received, shutting down...`);
 
-process.on('SIGINT', () => {
-  logger.info('SIGINT received, shutting down...');
+  const activeCount = rpcSessionManager.size;
+  if (activeCount > 0) {
+    logger.info(`Stopping ${activeCount} active RPC sessions...`);
+  }
+
+  // Destroy all RPC sessions first (lets Pi flush session files)
+  // with a 5-second timeout so we don't hang forever
+  try {
+    await Promise.race([
+      rpcSessionManager.destroyAll(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('RPC shutdown timed out')), 5000)
+      ),
+    ]);
+    logger.info('All RPC sessions stopped');
+  } catch (err) {
+    logger.warn('RPC shutdown did not complete cleanly', { error: err.message });
+  }
+
   server.close(() => {
     logger.info('Server closed');
     process.exit(0);
   });
-});
+
+  // Force exit if server.close hangs
+  setTimeout(() => {
+    logger.warn('Forced exit after server close timeout');
+    process.exit(1);
+  }, 5000).unref();
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

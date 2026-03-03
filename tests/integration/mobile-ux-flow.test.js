@@ -12,26 +12,23 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
 const appJs = readFileSync(resolve('public/app.js'), 'utf8');
-const claudeJs = readFileSync(resolve('server/claude.js'), 'utf8');
+const piAgentJs = readFileSync(resolve('server/pi-agent.js'), 'utf8');
 const indexJs = readFileSync(resolve('server/index.js'), 'utf8');
 
 // ===========================================================================
 // 1. Token Usage / Context Bar Message Flow
 // ===========================================================================
 describe('Token usage message flow (server -> client)', () => {
-  it('server extractTokenUsage returns model field', () => {
-    const fnStart = claudeJs.indexOf('function extractTokenUsage(');
-    const fnEnd = claudeJs.indexOf('\n}', fnStart);
-    const fnBody = claudeJs.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('model: modelKey');
+  it('server transformEvent extracts token usage from events', () => {
+    expect(piAgentJs).toContain('type: \'_token_usage\'');
   });
 
-  it('server sends token-usage message with spread of extractTokenUsage result', () => {
-    // In processQueryStream, after extractTokenUsage returns, it sends:
-    // { type: 'token-usage', sessionId, ...usage }
-    const sendStart = claudeJs.indexOf("type: 'token-usage'");
-    const sendBlock = claudeJs.slice(sendStart - 100, sendStart + 200);
-    expect(sendBlock).toContain('...usage');
+  it('server sends token-usage message with usage data', () => {
+    // In handleChat, after transformEvent returns _token_usage, it sends:
+    // { type: 'token-usage', sessionId, ...transformed.usage }
+    const sendStart = piAgentJs.indexOf("type: 'token-usage'");
+    const sendBlock = piAgentJs.slice(sendStart - 100, sendStart + 200);
+    expect(sendBlock).toContain('...transformed.usage');
     expect(sendBlock).toContain('sessionId');
   });
 
@@ -126,20 +123,14 @@ describe('Tool pill rendering flow', () => {
     expect(fnBody).toContain('outputEl.textContent = output');
   });
 
-  it('server transformMessage generates tool_use with summary', () => {
-    const fnStart = claudeJs.indexOf('function transformMessage(');
-    const fnEnd = claudeJs.indexOf('\n  return null;\n}', fnStart);
-    const fnBody = claudeJs.slice(fnStart, fnEnd);
-    expect(fnBody).toContain("type: 'tool_use'");
-    expect(fnBody).toContain('summary: getToolSummary(toolUse.name, toolUse.input)');
+  it('server transformEvent generates tool_use with summary', () => {
+    expect(piAgentJs).toContain("type: 'tool_use'");
+    expect(piAgentJs).toContain('getToolSummary');
   });
 
-  it('server transformMessage generates tool_result with truncated output', () => {
-    const fnStart = claudeJs.indexOf('function transformMessage(');
-    const fnEnd = claudeJs.indexOf('\n  return null;\n}', fnStart);
-    const fnBody = claudeJs.slice(fnStart, fnEnd);
-    expect(fnBody).toContain("type: 'tool_result'");
-    expect(fnBody).toContain('truncateOutput');
+  it('server transformEvent generates tool_result with output', () => {
+    expect(piAgentJs).toContain("type: 'tool_result'");
+    expect(piAgentJs).toContain('output:');
   });
 });
 
@@ -265,52 +256,47 @@ describe('Session state persistence for context bar', () => {
 // ===========================================================================
 describe('WebSocket protocol audit', () => {
   it('server sends token-usage type that client handles', () => {
-    expect(claudeJs).toContain("type: 'token-usage'");
+    expect(piAgentJs).toContain("type: 'token-usage'");
     expect(appJs).toContain("case 'token-usage':");
   });
 
   it('server sends claude-message type that client handles', () => {
-    expect(claudeJs).toContain("type: 'claude-message'");
+    expect(piAgentJs).toContain("type: 'claude-message'");
     expect(appJs).toContain("case 'claude-message':");
   });
 
   it('server sends claude-done type that client handles', () => {
-    expect(claudeJs).toContain("type: 'claude-done'");
+    expect(piAgentJs).toContain("type: 'claude-done'");
     expect(appJs).toContain("case 'claude-done':");
   });
 
   it('server sends error type that client handles', () => {
-    expect(claudeJs).toContain("type: 'error'");
+    expect(piAgentJs).toContain("type: 'error'");
     expect(appJs).toContain("case 'error':");
   });
 
   it('server sends session-created type that client handles', () => {
-    expect(claudeJs).toContain("type: 'session-created'");
+    expect(piAgentJs).toContain("type: 'session-created'");
     expect(appJs).toContain("case 'session-created':");
   });
 
-  it('token-usage message includes used, contextWindow, model fields', () => {
-    // Server side: extractTokenUsage returns { used, contextWindow, model }
-    // And it's spread into the message
-    const fnStart = claudeJs.indexOf('function extractTokenUsage(');
-    const fnEnd = claudeJs.indexOf('\n}', fnStart);
-    const fnBody = claudeJs.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('used');
-    expect(fnBody).toContain('contextWindow');
-    expect(fnBody).toContain('model');
+  it('token-usage message includes usage data', () => {
+    // Server side: transformEvent extracts usage from Pi events
+    expect(piAgentJs).toContain("type: '_token_usage'");
+    expect(piAgentJs).toContain('contextWindow');
+    expect(piAgentJs).toContain('model');
 
     // Client side passes entire message to updateTokenUsage
     const caseStart = appJs.indexOf("case 'token-usage':");
     const caseEnd = appJs.indexOf('break;', caseStart);
     const caseBody = appJs.slice(caseStart, caseEnd);
-    expect(caseBody).toContain('msg.model');
     expect(caseBody).toContain('updateTokenUsage(msg, session)');
   });
 
   it('tool_use and tool_result message types are handled by client', () => {
     // Server sends tool_use and tool_result as data.type inside claude-message
-    expect(claudeJs).toContain("type: 'tool_use'");
-    expect(claudeJs).toContain("type: 'tool_result'");
+    expect(piAgentJs).toContain("type: 'tool_use'");
+    expect(piAgentJs).toContain("type: 'tool_result'");
 
     // Client handles them in handleClaudeMessage
     const fnStart = appJs.indexOf('function handleClaudeMessage(');

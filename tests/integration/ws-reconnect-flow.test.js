@@ -11,7 +11,7 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
 const indexJs = readFileSync(resolve('server/index.js'), 'utf8');
-const claudeJs = readFileSync(resolve('server/claude.js'), 'utf8');
+const piAgentJs = readFileSync(resolve('server/pi-agent.js'), 'utf8');
 const appJs = readFileSync(resolve('public/app.js'), 'utf8');
 
 // ─── Server SSE endpoint structure ──────────────────────────────
@@ -161,10 +161,10 @@ describe('old WS subscription protocol removed (server/index.js)', () => {
     expect(indexJs).not.toMatch(/case\s*'subscribe'/);
   });
 
-  it('imports from omp.js not claude.js', () => {
-    const ompImport = indexJs.match(/import\s*\{[^}]*\}\s*from\s*'\.\/omp\.js'/);
-    expect(ompImport).toBeTruthy();
-    expect(ompImport[0]).toContain('handleChat');
+  it('imports from pi-agent.js not claude.js', () => {
+    const piImport = indexJs.match(/import\s*\{[^}]*\}\s*from\s*'\.\/pi-agent\.js'/);
+    expect(piImport).toBeTruthy();
+    expect(piImport[0]).toContain('handleChat');
   });
 
   it('does not import isSessionActive or resubscribeSession', () => {
@@ -307,28 +307,20 @@ describe('old WS subscription protocol removed (public/app.js)', () => {
   });
 });
 
-// ─── WebSocket replacement mechanism (claude.js) ─────────────────
-describe('WebSocket replacement mechanism (server/claude.js)', () => {
+// ─── WebSocket replacement mechanism (pi-agent.js) ─────────────────
+describe('WebSocket replacement mechanism (server/pi-agent.js)', () => {
   it('resubscribeSession replaces ws on the sessionInfo object', () => {
-    expect(claudeJs).toMatch(/sessionInfo\.ws = newWs/);
-  });
-
-  it('processQueryStream reads from sessionInfo.ws, enabling mid-stream swap', () => {
-    const fnStart = claudeJs.indexOf('async function processQueryStream(');
-    const fnEnd = claudeJs.indexOf('\n}', fnStart + 50);
-    const fnBody = claudeJs.slice(fnStart, fnEnd);
-
-    expect(fnBody).toContain('sendMessage(sessionInfo.ws,');
+    expect(piAgentJs).toMatch(/sessionInfo\.ws = newWs/);
   });
 
   it('sendMessage function takes username parameter', () => {
-    expect(claudeJs).toMatch(/function sendMessage\(ws, data, username\)/);
+    expect(piAgentJs).toMatch(/function sendMessage\(ws, data, username\)/);
   });
 
   it('sendMessage publishes to event bus', () => {
-    const fnStart = claudeJs.indexOf('function sendMessage(ws, data, username)');
-    const fnEnd = claudeJs.indexOf('\n}', fnStart);
-    const fnBody = claudeJs.slice(fnStart, fnEnd);
+    const fnStart = piAgentJs.indexOf('function sendMessage(ws, data, username)');
+    const fnEnd = piAgentJs.indexOf('\n}', fnStart);
+    const fnBody = piAgentJs.slice(fnStart, fnEnd);
 
     expect(fnBody).toContain('broadcastToSession(');
     expect(fnBody).toContain('publish(username, data)');

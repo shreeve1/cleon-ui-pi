@@ -76,9 +76,9 @@ JWT_SECRET=change-this-to-a-random-secure-string-at-least-32-chars
 # CORS: Allowed origins (comma-separated)
 ALLOWED_ORIGINS=https://your-domain.com
 
-# Claude SDK Configuration
-ANTHROPIC_API_KEY=your-api-key-here
-CONTEXT_WINDOW=200000
+# Pi Coding Agent Configuration
+# Path to Pi binary (defaults to 'pi' if not set)
+PI_BINARY=pi
 
 # Optional: Logging
 LOG_LEVEL=info
@@ -126,15 +126,16 @@ cleon-ui/
 - Node.js + Express
 - better-sqlite3 for data persistence
 - JWT for authentication
-- Anthropic SDK for Claude API
+- Pi Coding Agent RPC for AI interactions
 
 ### How It Works
 
 1. **Authentication**: Users authenticate via JWT tokens stored in localStorage
 2. **Project Management**: Search/create projects in `~/Documents/claude`
 3. **Chat Sessions**: Each conversation creates a session with message history
-4. **Streaming**: Claude responses stream via SSE from server to client
+4. **Streaming**: AI responses stream via SSE from server to client
 5. **Persistence**: Messages, sessions, and projects stored in SQLite
+6. **Pi Integration**: Spawns `pi --mode rpc --no-session` for each chat request
 
 ## API Endpoints
 
@@ -290,9 +291,9 @@ Projects are expected in:
 - Verify read permissions
 
 ### "Failed to connect to Claude"
-- Verify ANTHROPIC_API_KEY is set correctly
-- Check network connectivity
-- Review server logs for API errors
+- Verify Pi is installed and accessible (`pi --version`)
+- Check PI_BINARY env var if using custom path
+- Review server logs for RPC errors
 
 ### Data Migration Issues
 - Check `~/.claude-lite/` exists before migration
@@ -315,7 +316,7 @@ MIT License
 ## Credits
 
 Built with:
-- [Anthropic Claude API](https://www.anthropic.com/)
+- [Pi Coding Agent](https://github.com/mariozechner/pi) - AI agent harness
 - [Express.js](https://expressjs.com/)
 - [better-sqlite3](https://github.com/WiseLibs/better-sqlite3)
 - Retro neon aesthetic inspired by 80s arcade culture

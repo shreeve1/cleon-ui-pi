@@ -1,10 +1,10 @@
 /**
  * Unit tests for auto-reconnect active stream feature
- * Tests server/claude.js: resubscribeSession, isSessionActive, sendMessage behavior,
+ * Tests server/pi-agent.js: resubscribeSession, isSessionActive, sendMessage behavior,
  * and that all sendMessage calls use sessionInfo.ws (mutable reference)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { isSessionActive, resubscribeSession } from '../../server/claude.js';
+import { isSessionActive, resubscribeSession } from '../../server/pi-agent.js';
 
 // ─── isSessionActive ─────────────────────────────────────────────
 describe('isSessionActive', () => {

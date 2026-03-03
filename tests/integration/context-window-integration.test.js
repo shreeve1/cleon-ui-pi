@@ -34,7 +34,7 @@ const mockLocalStorage = {
   clear: vi.fn(() => { mockLocalStorage.storage = {}; })
 };
 
-// Server-side token extraction (replicated from server/claude.js)
+// Server-side token extraction (replicated from server/pi-agent.js)
 const MODEL_CONTEXT_WINDOWS = {
   'claude-3-opus-20240229': 200000,
   'claude-3-sonnet-20240229': 200000,

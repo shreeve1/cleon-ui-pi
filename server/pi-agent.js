@@ -8,12 +8,13 @@ import { broadcastToSession, startSessionBuffer } from './broadcast.js';
 import { publish } from './bus.js';
 import { createActivityTracker } from './activity.js';
 import { register, setStatus } from './session-registry.js';
+import { getRpcSessionManager } from './session-manager-instance.js';
 
 // Constants
 const TOOL_OUTPUT_TRUNCATE_LENGTH = 1500;
 const TOOL_SUMMARY_TRUNCATE_LENGTH = 200;
 const RPC_COMMAND_TIMEOUT_MS = 60_000;
-const OMP_BINARY = process.env.OMP_BINARY || 'omp';
+const PI_BINARY = process.env.PI_BINARY || 'pi';
 
 // ─── RpcClient ──────────────────────────────────────────────────────
 
@@ -24,19 +25,25 @@ class RpcClient {
   #eventListeners = new Set();
   #lineBuffer = '';
   #cwd = null;
+  #sessionFile = null;
   #extraArgs = [];
   #alive = false;
 
-  constructor(cwd, extraArgs = []) {
+  constructor(cwd, options = {}) {
     this.#cwd = cwd;
-    this.#extraArgs = extraArgs;
+    this.#sessionFile = options.sessionFile || null;
+    this.#extraArgs = options.extraArgs || [];
   }
 
   async start() {
     if (this.#alive) return;
 
-    const args = ['--mode', 'rpc', ...this.#extraArgs];
-    this.#process = spawn(OMP_BINARY, args, {
+    const args = ['--mode', 'rpc'];
+    if (this.#sessionFile) {
+      args.push('--session', this.#sessionFile);
+    }
+    args.push(...this.#extraArgs);
+    this.#process = spawn(PI_BINARY, args, {
       cwd: this.#cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env },
@@ -51,16 +58,16 @@ class RpcClient {
 
     this.#process.stderr.on('data', (chunk) => {
       const text = chunk.toString().trimEnd();
-      if (text) console.log(`[OMP:stderr] ${text}`);
+      if (text) console.log(`[Pi:stderr] ${text}`);
     });
 
     this.#process.on('exit', (code, signal) => {
       this.#alive = false;
-      console.log(`[OMP] Process exited code=${code} signal=${signal}`);
+      console.log(`[Pi] Process exited code=${code} signal=${signal}`);
       // Reject all pending responses
       for (const [id, pending] of this.#pendingResponses) {
         clearTimeout(pending.timer);
-        pending.reject(new Error(`OMP process exited (code=${code})`));
+        pending.reject(new Error(`Pi process exited (code=${code})`));
       }
       this.#pendingResponses.clear();
       // Notify listeners of exit
@@ -69,24 +76,30 @@ class RpcClient {
 
     this.#process.on('error', (err) => {
       this.#alive = false;
-      console.error('[OMP] Process error:', err.message);
+      console.error('[Pi] Process error:', err.message);
       this.#emit({ type: '_process_error', error: err.message });
     });
 
-    // Wait for the { type: "ready" } message
+    // Pi RPC mode does NOT emit a 'ready' event like OMP did.
+    // Wait briefly then verify process is still alive.
     await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('OMP RPC startup timed out (no "ready" event)'));
-      }, 15_000);
-
-      const onReady = (event) => {
-        if (event.type === 'ready') {
-          clearTimeout(timeout);
-          this.#eventListeners.delete(onReady);
+      const checkAlive = setTimeout(() => {
+        if (this.#process && this.#process.exitCode === null) {
           resolve();
+        } else {
+          reject(new Error(`Pi RPC process exited immediately (exitCode=${this.#process?.exitCode})`));
         }
-      };
-      this.#eventListeners.add(onReady);
+      }, 500);
+
+      this.#process.on('error', (err) => {
+        clearTimeout(checkAlive);
+        reject(new Error(`Pi RPC process failed to start: ${err.message}`));
+      });
+
+      this.#process.once('exit', (code) => {
+        clearTimeout(checkAlive);
+        reject(new Error(`Pi RPC process exited during startup (code=${code})`));
+      });
     });
   }
 
@@ -123,7 +136,7 @@ class RpcClient {
    * Send a command and wait for its correlated response.
    */
   async sendCommand(cmd) {
-    if (!this.#alive) throw new Error('OMP RPC process not running');
+    if (!this.#alive) throw new Error('Pi RPC process not running');
 
     const id = `req_${++this.#requestId}`;
     const frame = { id, ...cmd };
@@ -132,7 +145,7 @@ class RpcClient {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pendingResponses.delete(id);
-        reject(new Error(`OMP command timed out after ${RPC_COMMAND_TIMEOUT_MS}ms: ${cmd.type}`));
+        reject(new Error(`Pi command timed out after ${RPC_COMMAND_TIMEOUT_MS}ms: ${cmd.type}`));
       }, RPC_COMMAND_TIMEOUT_MS);
 
       this.#pendingResponses.set(id, { resolve, reject, timer });
@@ -142,7 +155,7 @@ class RpcClient {
       } catch (err) {
         clearTimeout(timer);
         this.#pendingResponses.delete(id);
-        reject(new Error(`Failed to write to OMP stdin: ${err.message}`));
+        reject(new Error(`Failed to write to Pi stdin: ${err.message}`));
       }
     });
   }
@@ -153,6 +166,14 @@ class RpcClient {
   async prompt(message, options = {}) {
     const cmd = { type: 'prompt', message, ...options };
     return this.sendCommand(cmd);
+  }
+
+  /**
+   * Query Pi's current state (model, session info, etc.).
+   * Returns the full get_state response including sessionFile and sessionId.
+   */
+  async getState() {
+    return this.sendCommand({ type: 'get_state' });
   }
 
   /**
@@ -172,7 +193,7 @@ class RpcClient {
     try {
       this.#process.stdin.write(line);
     } catch (err) {
-      console.error('[OMP] Failed to send extension_ui_response:', err.message);
+      console.error('[Pi] Failed to send extension_ui_response:', err.message);
     }
   }
 
@@ -197,7 +218,7 @@ class RpcClient {
       try {
         parsed = JSON.parse(line);
       } catch (err) {
-        console.error('[OMP] Failed to parse JSONL:', line.slice(0, 200));
+        console.error('[Pi] Failed to parse JSONL:', line.slice(0, 200));
         continue;
       }
 
@@ -225,7 +246,7 @@ class RpcClient {
       try {
         listener(event);
       } catch (err) {
-        console.error('[OMP] Event listener error:', err.message);
+        console.error('[Pi] Event listener error:', err.message);
       }
     }
   }
@@ -339,118 +360,10 @@ function getToolSummary(tool, input) {
   return formatter ? formatter(input) : { summary: tool };
 }
 
-// ─── Session history ────────────────────────────────────────────────
-
-function formatConversationHistory(messages, maxChars = 100000) {
-  if (!messages || messages.length === 0) return '';
-
-  const lines = [];
-  let totalChars = 0;
-  const recentMessages = messages.slice(-50);
-
-  for (const msg of recentMessages) {
-    let line = '';
-    const timestamp = msg.timestamp ? `[${new Date(msg.timestamp).toLocaleTimeString()}] ` : '';
-
-    if (msg.role === 'user') {
-      line = `${timestamp}USER: ${msg.content || ''}`;
-    } else if (msg.role === 'assistant') {
-      const content = msg.content || '';
-      const truncated = content.length > 2000
-        ? content.slice(0, 2000) + '...[truncated]'
-        : content;
-      line = `${timestamp}ASSISTANT: ${truncated}`;
-    } else if (msg.role === 'tool') {
-      line = `${timestamp}TOOL (${msg.tool}): ${msg.summary || 'executed'}`;
-    }
-
-    if (line) {
-      totalChars += line.length;
-      if (totalChars > maxChars) break;
-      lines.push(line);
-    }
-  }
-
-  if (lines.length === 0) return '';
-
-  return `<conversation-history>
-Previous conversation context (${lines.length} messages):
-
-${lines.join('\n\n')}
-
-</conversation-history>
-
-`;
-}
-
-async function loadSessionHistory(projectPath, sessionId, limit = 50) {
-  const CLAUDE_PROJECTS = path.join(os.homedir(), '.claude', 'projects');
-  const projectName = '-' + projectPath.slice(1).replace(/\//g, '-');
-  const projectDir = path.join(CLAUDE_PROJECTS, projectName);
-
-  try {
-    const files = await fs.readdir(projectDir);
-    const jsonlFiles = files.filter(f =>
-      f.endsWith('.jsonl') &&
-      !f.startsWith('agent-') &&
-      f.startsWith(sessionId)
-    );
-
-    if (jsonlFiles.length === 0) return [];
-
-    const messages = [];
-    const sessionFile = path.join(projectDir, jsonlFiles[0]);
-    const content = await fs.readFile(sessionFile, 'utf8');
-    const lines = content.split('\n').filter(Boolean);
-
-    for (const line of lines) {
-      try {
-        const entry = JSON.parse(line);
-        if (entry.sessionId !== sessionId) continue;
-        const msg = parseHistoryEntry(entry);
-        if (msg) messages.push(msg);
-      } catch { /* skip malformed */ }
-    }
-
-    messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-    return messages.slice(-limit);
-  } catch {
-    return [];
-  }
-}
-
-function parseHistoryEntry(entry) {
-  const timestamp = entry.timestamp || new Date().toISOString();
-
-  if (entry.type === 'user' || entry.message?.role === 'user') {
-    let text = entry.message?.content;
-    if (Array.isArray(text)) {
-      text = text.filter(t => t.type === 'text').map(t => t.text).join('\n');
-    }
-    if (typeof text === 'string' && text.length > 0 &&
-        !text.startsWith('<command-') && !text.startsWith('{')) {
-      return { role: 'user', content: text, timestamp };
-    }
-  }
-
-  if (entry.type === 'assistant' || entry.message?.role === 'assistant') {
-    const content = entry.message?.content;
-    if (Array.isArray(content)) {
-      const textParts = content.filter(c => c.type === 'text').map(c => c.text);
-      if (textParts.length > 0) return { role: 'assistant', content: textParts.join('\n'), timestamp };
-    }
-    if (typeof content === 'string' && content.length > 0) {
-      return { role: 'assistant', content, timestamp };
-    }
-  }
-
-  return null;
-}
-
-// ─── OMP Event → Cleon UI Message Transformation ────────────────────
+// ─── Pi Event → Cleon UI Message Transformation ────────────────────
 
 /**
- * Transform an OMP RPC event into a Cleon UI message (or null to skip).
+ * Transform a Pi RPC event into a Cleon UI message (or null to skip).
  * Returns { type, ...data } matching what the frontend expects inside
  * a `claude-message` wrapper.
  */
@@ -479,9 +392,10 @@ function transformEvent(event, sessionId, sessionInfo) {
 
     // ── Tool execution ──
     case 'tool_execution_start': {
-      const toolName = event.toolName || event.tool || event.name || 'unknown';
-      const toolUseId = event.toolCallId || event.toolUseId || event.id || randomUUID();
-      const input = event.args || event.input || {};
+      // Pi uses consistent field names (no fallbacks needed like OMP)
+      const toolName = event.toolName || 'unknown';
+      const toolUseId = event.toolCallId || randomUUID();
+      const input = event.args || {};
 
       // Record start time
       const startTime = new Date();
@@ -531,21 +445,18 @@ function transformEvent(event, sessionId, sessionInfo) {
     }
 
     case 'tool_execution_end': {
-      const toolUseId = event.toolCallId || event.toolUseId || event.id || '';
-      const isError = event.isError === true || !!event.error;
-      // Extract output text from OMP's result structure
+      // Pi uses consistent field names
+      const toolUseId = event.toolCallId || '';
+      const isError = event.isError === true;
+      // Extract output text from Pi's result structure
       let output = '';
-      if (event.result && typeof event.result === 'object') {
+      if (event.result && event.result.content) {
         const content = event.result.content;
         if (Array.isArray(content)) {
           output = content.filter(c => c.type === 'text').map(c => c.text).join('\n');
-        } else if (typeof event.result === 'string') {
-          output = event.result;
         } else {
           output = JSON.stringify(event.result);
         }
-      } else {
-        output = event.output || event.error || '';
       }
 
       const startTime = toolStartTimes.get(toolUseId);
@@ -601,10 +512,10 @@ function transformEvent(event, sessionId, sessionInfo) {
       const uiId = event.id;
 
       if (method === 'select') {
-        // Map OMP select → Cleon UI question format
+        // Pi sends options as string arrays (simplified from OMP)
         const options = (event.options || []).map(opt => {
           if (typeof opt === 'string') return { label: opt };
-          return { label: opt.label || opt.value || String(opt), description: opt.description || '' };
+          return { label: String(opt) };
         });
         return {
           type: 'question',
@@ -713,6 +624,61 @@ function transformEvent(event, sessionId, sessionInfo) {
       };
     }
 
+    // ── Pi-specific events (not in OMP) ──
+    case 'tool_execution_update': {
+      // Pi streams partial tool output during long-running tools
+      // For now, skip (no frontend support for live tool output)
+      return null;
+    }
+
+    case 'message_start':
+    case 'message_end': {
+      // Pi message lifecycle events — no direct frontend mapping needed
+      return null;
+    }
+
+    case 'auto_compaction_start': {
+      return {
+        type: 'text',
+        content: '\n[Context compaction in progress...]\n',
+        timestamp,
+        messageId,
+      };
+    }
+
+    case 'auto_compaction_end': {
+      if (event.result) {
+        return {
+          type: 'text',
+          content: `\n[Context compacted: ${event.result.tokensBefore} tokens → reduced]\n`,
+          timestamp,
+          messageId,
+        };
+      }
+      return null;
+    }
+
+    case 'auto_retry_start': {
+      return {
+        type: 'text',
+        content: `\n[Retrying... attempt ${event.attempt}/${event.maxAttempts} after error: ${event.errorMessage}]\n`,
+        timestamp,
+        messageId,
+      };
+    }
+
+    case 'auto_retry_end': {
+      if (!event.success) {
+        return {
+          type: 'text',
+          content: `\n[Retry failed after ${event.attempt} attempts: ${event.finalError}]\n`,
+          timestamp,
+          messageId,
+        };
+      }
+      return null;
+    }
+
     // ── Process lifecycle (internal) ──
     case '_process_exit':
     case '_process_error':
@@ -721,7 +687,7 @@ function transformEvent(event, sessionId, sessionInfo) {
       return null;
 
     default:
-      // Unknown event types (auto_compaction_start, etc.) — skip
+      // Unknown event types — skip
       return null;
   }
 }
@@ -739,22 +705,9 @@ export async function handleChat(msg, ws, username) {
   const { content, projectPath, sessionId, isNewSession, attachments } = msg;
   const projectDisplayName = projectPath ? projectPath.split('/').pop() : '';
 
-  // Build prompt (with optional history and attachments)
+  // Build prompt — just the user's message, no history prepending
+  // (Pi maintains native context in the persistent RPC session)
   let prompt = content || '';
-
-  if (sessionId && !isNewSession) {
-    try {
-      console.log(`[OMP] Loading history for session ${sessionId}`);
-      const history = await loadSessionHistory(projectPath, sessionId, 50);
-      if (history.length > 0) {
-        const historyBlock = formatConversationHistory(history);
-        prompt = historyBlock + 'CONTINUING CONVERSATION - User asks: ' + prompt;
-        console.log(`[OMP] Prepended ${history.length} history messages to prompt`);
-      }
-    } catch (err) {
-      console.error('[OMP] Failed to load history:', err);
-    }
-  }
 
   // Handle attachments
   let tempImagePaths = [];
@@ -774,7 +727,7 @@ export async function handleChat(msg, ws, username) {
           const relativePath = path.relative(projectPath, tempPath);
           textAttachments.push(`\n\n[User attached an image: ${att.name}. Please use the Read tool to view the image at: ${relativePath}]`);
         } catch (err) {
-          console.error('[OMP] Failed to save temp image:', err);
+          console.error('[Pi] Failed to save temp image:', err);
           textAttachments.push(`\n\n[User tried to attach an image: ${att.name}, but it failed to process]`);
         }
       } else {
@@ -797,15 +750,18 @@ export async function handleChat(msg, ws, username) {
     pendingExtensionUI: new Map(),
   };
 
-  try {
-    console.log(`[OMP] Starting RPC - project: ${projectPath}, session: ${currentSessionId}`);
-    console.log(`[OMP] Prompt length: ${prompt.length} chars`);
+  let unsubscribeEvents = null;
 
-    // Spawn RPC client
-    const rpc = new RpcClient(projectPath);
+  try {
+    console.log(`[Pi] Chat - project: ${projectPath}, session: ${currentSessionId}`);
+    console.log(`[Pi] Prompt length: ${prompt.length} chars`);
+
+    // Get or create persistent RPC session
+    const manager = getRpcSessionManager();
+    const { rpc, sessionFile, isNew } = await manager.getOrCreate(currentSessionId, projectPath, username);
     sessionInfo.rpc = rpc;
 
-    // Register session before spawning so abort can find it
+    // Register session in active sessions map and session registry
     activeSessions.set(currentSessionId, sessionInfo);
     startSessionBuffer(currentSessionId);
     register(currentSessionId, {
@@ -814,6 +770,7 @@ export async function handleChat(msg, ws, username) {
       projectName: projectDisplayName,
       displayName: projectDisplayName,
       status: 'streaming',
+      piSessionFile: sessionFile,
     });
     publish(username, { type: 'session-status', sessionId: currentSessionId, status: 'streaming' });
     sessionInfo.activityTracker = createActivityTracker((event) => publish(username, event), currentSessionId);
@@ -823,13 +780,11 @@ export async function handleChat(msg, ws, username) {
       sendMessage(ws, { type: 'session-created', sessionId: currentSessionId }, username);
     }
 
-    await rpc.start();
-
     // Subscribe to events and transform them for the frontend
     let agentDone = false;
 
     const agentEndPromise = new Promise((resolve) => {
-      rpc.onEvent((event) => {
+      unsubscribeEvents = rpc.onEvent((event) => {
         // Skip internal frames we don't care about
         if (event.type === 'ready' || event.type === 'response') return;
 
@@ -870,18 +825,18 @@ export async function handleChat(msg, ws, username) {
       });
     });
 
-    // Send the prompt
+    // Send the prompt (just the user message — Pi has full native context)
     await rpc.prompt(prompt);
 
     // Wait for completion
     await Promise.race([agentEndPromise, processExitPromise]);
 
     // Stream complete
-    console.log(`[OMP] Query complete - session: ${currentSessionId}`);
+    console.log(`[Pi] Query complete - session: ${currentSessionId}`);
     sendMessage(ws, { type: 'claude-done', sessionId: currentSessionId }, username);
 
   } catch (err) {
-    console.error('[OMP] Query error:', err);
+    console.error('[Pi] Query error:', err);
 
     const errMsg = err.message || '';
     const isRateLimit = errMsg.includes('429') ||
@@ -902,19 +857,21 @@ export async function handleChat(msg, ws, username) {
       sessionInfo.activityTracker = null;
     }
 
-    // Stop RPC process
-    if (sessionInfo.rpc) {
-      try { await sessionInfo.rpc.stop(); } catch { /* ignore */ }
+    // Unsubscribe event listeners for this turn
+    if (unsubscribeEvents) {
+      unsubscribeEvents();
     }
+
+    // Release session back to pool (starts idle timer) instead of killing
+    const manager = getRpcSessionManager();
+    manager.release(currentSessionId);
 
     activeSessions.delete(currentSessionId);
     setStatus(currentSessionId, 'idle');
     publish(username, { type: 'session-status', sessionId: currentSessionId, status: 'idle' });
-    taskManager.clearSession(currentSessionId);
 
-    for (const [toolUseId] of toolUseToTaskMap) {
-      toolUseToTaskMap.delete(toolUseId);
-    }
+    // DON'T clear task manager — session is still alive in the pool
+    // taskManager.clearSession(currentSessionId);
 
     // Clean up temp images
     for (const tempPath of tempImagePaths) {
@@ -927,29 +884,41 @@ export async function handleChat(msg, ws, username) {
  * Abort an active session.
  */
 export async function handleAbort(sessionId) {
+  // First check the active sessions map (mid-query)
   const sessionInfo = activeSessions.get(sessionId);
-  if (!sessionInfo) {
-    console.log(`[OMP] Abort: session ${sessionId} not found`);
-    return false;
-  }
-
-  try {
-    console.log(`[OMP] Aborting session: ${sessionId}`);
-
-    if (sessionInfo.rpc?.alive) {
+  if (sessionInfo?.rpc?.alive) {
+    try {
+      console.log(`[Pi] Aborting session: ${sessionId}`);
       await sessionInfo.rpc.abort();
-    }
 
-    if (sessionInfo.activityTracker) {
-      sessionInfo.activityTracker.finish();
-      sessionInfo.activityTracker = null;
-    }
+      if (sessionInfo.activityTracker) {
+        sessionInfo.activityTracker.finish();
+        sessionInfo.activityTracker = null;
+      }
 
-    return true;
-  } catch (err) {
-    console.error(`[OMP] Abort error for ${sessionId}:`, err);
-    return false;
+      return true;
+    } catch (err) {
+      console.error(`[Pi] Abort error for ${sessionId}:`, err);
+      return false;
+    }
   }
+
+  // Also check the session manager (process may be alive but between queries)
+  const manager = getRpcSessionManager();
+  const poolSession = manager.get(sessionId);
+  if (poolSession?.rpc?.alive) {
+    try {
+      console.log(`[Pi] Aborting pooled session: ${sessionId}`);
+      await poolSession.rpc.abort();
+      return true;
+    } catch (err) {
+      console.error(`[Pi] Abort error for pooled ${sessionId}:`, err);
+      return false;
+    }
+  }
+
+  console.log(`[Pi] Abort: session ${sessionId} not found`);
+  return false;
 }
 
 /**
@@ -971,14 +940,26 @@ export function resubscribeSession(sessionId, newWs) {
 
 /**
  * Handle question response from frontend.
- * Sends extension_ui_response back to OMP RPC process.
+ * Sends extension_ui_response back to Pi RPC process.
  */
 export async function handleQuestionResponse(sessionId, toolUseId, answers) {
-  console.log(`[OMP] Received question response for ${toolUseId}`);
+  console.log(`[Pi] Received question response for ${toolUseId}`);
 
+  // Check active sessions first, then fall back to session manager pool
+  let rpc = null;
   const sessionInfo = activeSessions.get(sessionId);
-  if (!sessionInfo?.rpc?.alive) {
-    console.log(`[OMP] No active RPC session for ${sessionId}`);
+  if (sessionInfo?.rpc?.alive) {
+    rpc = sessionInfo.rpc;
+  } else {
+    const manager = getRpcSessionManager();
+    const poolSession = manager.get(sessionId);
+    if (poolSession?.rpc?.alive) {
+      rpc = poolSession.rpc;
+    }
+  }
+
+  if (!rpc) {
+    console.log(`[Pi] No active RPC session for ${sessionId}`);
     return false;
   }
 
@@ -998,9 +979,9 @@ export async function handleQuestionResponse(sessionId, toolUseId, answers) {
 
   // Check if this was a confirm-type question (Yes/No mapped from confirm method)
   if (responseValue === 'Yes' || responseValue === 'No') {
-    sessionInfo.rpc.sendExtensionUIResponse(toolUseId, { confirmed: responseValue === 'Yes' });
+    rpc.sendExtensionUIResponse(toolUseId, { confirmed: responseValue === 'Yes' });
   } else {
-    sessionInfo.rpc.sendExtensionUIResponse(toolUseId, { value: responseValue });
+    rpc.sendExtensionUIResponse(toolUseId, { value: responseValue });
   }
 
   return true;
@@ -1008,9 +989,15 @@ export async function handleQuestionResponse(sessionId, toolUseId, answers) {
 
 /**
  * Handle plan confirmation response from frontend.
- * Plan mode is not used with OMP — stub for interface compatibility.
+ * Plan mode is not used with Pi — stub for interface compatibility.
  */
 export async function handlePlanResponse(sessionId, toolUseId, approved, feedback) {
-  console.log(`[OMP] Plan response received (not applicable for OMP backend)`);
+  console.log(`[Pi] Plan response received (not applicable for Pi backend)`);
   return false;
 }
+
+// Export transformEvent for testing
+export { transformEvent as _transformEvent };
+
+// Export RpcClient for use by rpc-session-manager
+export { RpcClient };
