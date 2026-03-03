@@ -780,6 +780,24 @@ export async function handleChat(msg, ws, username) {
       sendMessage(ws, { type: 'session-created', sessionId: currentSessionId }, username);
     }
 
+    // Set the requested model before prompting
+    if (msg.model && msg.model.includes('/')) {
+      const slashIdx = msg.model.indexOf('/');
+      const provider = msg.model.slice(0, slashIdx);
+      const modelId = msg.model.slice(slashIdx + 1);
+      try {
+        const modelResp = await rpc.sendCommand({ type: 'set_model', provider, modelId });
+        if (modelResp && modelResp.success) {
+          console.log(`[Pi] Model set to ${msg.model}`);
+        } else {
+          console.warn(`[Pi] set_model failed for ${msg.model}:`, modelResp);
+        }
+      } catch (err) {
+        console.error(`[Pi] Failed to set model ${msg.model}:`, err.message);
+        // Don't fail the chat — continue with default model
+      }
+    }
+
     // Subscribe to events and transform them for the frontend
     let agentDone = false;
 
