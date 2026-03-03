@@ -18,6 +18,7 @@ import { handleChat, handleAbort, handleQuestionResponse, handlePlanResponse } f
 import { getAllCommands } from './commands.js';
 import { processUpload, validateFile } from './uploads.js';
 import logger from './logger.js';
+import { loadModelsConfig } from './models.js';
 import { subscribe, publish } from './bus.js';
 import { getSessionsForUser } from './session-registry.js';
 import { replayBufferToSSE } from './broadcast.js';
@@ -140,6 +141,17 @@ app.get('/api/commands', authenticateToken, async (req, res) => {
   } catch (err) {
     logger.error('Error fetching commands', { error: err.message, projectPath: req.query.projectPath });
     res.status(500).json({ error: 'Failed to fetch commands' });
+  }
+});
+
+// Models API - get configured models for dropdown
+app.get('/api/models', authenticateToken, async (req, res) => {
+  try {
+    const config = await loadModelsConfig();
+    res.json(config);
+  } catch (err) {
+    logger.error('Error fetching models config', { error: err.message });
+    res.status(500).json({ error: 'Failed to fetch models config' });
   }
 });
 
