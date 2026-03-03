@@ -69,16 +69,14 @@
             </svg>
           </button>
           <div id="model-btn-wrapper">
-            <button type="button" id="model-btn" class="icon-btn model-default" title="Sonnet" disabled>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="3"/>
-                <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+            <button type="button" id="model-btn" class="model-select-btn" title="Select model">
+              <span id="model-btn-label">Loading...</span>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                <path d="M2 4l4 4 4-4"/>
               </svg>
             </button>
             <div id="model-dropdown" class="dropdown-menu hidden">
-              <button class="dropdown-item" data-model="haiku">Haiku</button>
-              <button class="dropdown-item" data-model="sonnet">Sonnet</button>
-              <button class="dropdown-item" data-model="opus">Opus</button>
+              <!-- Populated dynamically from /api/models -->
             </div>
           </div>
           <button id="abort-btn" class="icon-btn hidden" aria-label="Stop">
