@@ -1964,27 +1964,34 @@ body::after {
 }
 
 /* Model Selection Button */
-#model-btn {
-  width: 44px;
-  height: 44px;
+.model-select-btn {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--neon-cyan);
   background: transparent;
   color: var(--neon-cyan);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
   transition: all 0.2s ease;
+  white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-#model-btn:hover:not(:disabled) {
+.model-select-btn:hover {
   background: var(--bg-hover);
   box-shadow: 0 0 15px rgba(0, 240, 255, 0.3);
 }
 
-#model-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.model-select-btn svg {
+  flex-shrink: 0;
+  opacity: 0.7;
 }
 
 /* Model dropdown menu */
