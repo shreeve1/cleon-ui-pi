@@ -41,7 +41,9 @@ const state = {
   searchTimeout: null,
   customCommands: [],
   forceNewTab: false,
-  selectedModel: localStorage.getItem('selectedModel') || 'sonnet',
+  selectedModel: localStorage.getItem('selectedModel') || null,
+  availableModels: [],
+  defaultModel: null,
 };
 
 // Session object factory
@@ -685,6 +687,7 @@ const contextUsageText = $('#context-usage-text');
 const scrollToBottomBtn = $('#scroll-to-bottom-btn');
 const unreadBadge = $('#unread-badge');
 const modelBtn = $('#model-btn');
+const modelBtnLabel = $('#model-btn-label');
 const modelDropdown = $('#model-dropdown');
 
 // Built-in commands (always available)
@@ -727,25 +730,66 @@ function parseCommand(message) {
 }
 
 // Model selection
-function setModel(model) {
-  state.selectedModel = model;
-  localStorage.setItem('selectedModel', model);
-  modelBtn.title = model.charAt(0).toUpperCase() + model.slice(1);
+function setModel(modelKey) {
+  state.selectedModel = modelKey;
+  if (modelKey) {
+    localStorage.setItem('selectedModel', modelKey);
+  }
+  // Update button label
+  const model = state.availableModels.find(m => m.key === modelKey);
+  if (modelBtnLabel) {
+    modelBtnLabel.textContent = model ? model.name : (modelKey || 'No model');
+  }
+  if (modelBtn) {
+    modelBtn.title = model ? `${model.provider}/${model.id}` : '';
+  }
+  // Update active state in dropdown
   modelDropdown.querySelectorAll('.dropdown-item').forEach(item => {
-    item.classList.toggle('active', item.dataset.model === model);
+    item.classList.toggle('active', item.dataset.model === modelKey);
   });
   modelDropdown.classList.add('hidden');
+}
+
+// Fetch models from server and populate dropdown
+async function fetchAndPopulateModels() {
+  try {
+    const token = localStorage.getItem('token');
+    const resp = await fetch('/api/models', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const config = await resp.json();
+
+    state.availableModels = config.models || [];
+    state.defaultModel = config.default || null;
+
+    // Clear existing dropdown items
+    modelDropdown.innerHTML = '';
+
+    // Populate dropdown
+    state.availableModels.forEach(model => {
+      const btn = document.createElement('button');
+      btn.className = 'dropdown-item';
+      btn.dataset.model = model.key;
+      btn.textContent = model.name;
+      btn.addEventListener('click', () => setModel(model.key));
+      modelDropdown.appendChild(btn);
+    });
+
+    // Set initial model: use localStorage if valid, else default
+    const saved = localStorage.getItem('selectedModel');
+    const isValid = saved && state.availableModels.some(m => m.key === saved);
+    setModel(isValid ? saved : state.defaultModel);
+
+  } catch (err) {
+    console.error('[Models] Failed to fetch models:', err);
+    if (modelBtnLabel) modelBtnLabel.textContent = 'Error';
+  }
 }
 
 modelBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   modelDropdown.classList.toggle('hidden');
-});
-
-modelDropdown.querySelectorAll('.dropdown-item').forEach(item => {
-  item.addEventListener('click', () => {
-    setModel(item.dataset.model);
-  });
 });
 
 document.addEventListener('click', () => {
@@ -847,7 +891,10 @@ function handleContextCommand() {
 
 // Handler for /model command
 function handleModelCommand() {
-  appendCommandMessage('Model: Claude (via Claude Code SDK)\nModel switching is not yet supported in the web UI.');
+  const model = state.availableModels.find(m => m.key === state.selectedModel);
+  const name = model ? model.name : state.selectedModel || 'None';
+  const provider = model ? model.provider : 'unknown';
+  appendCommandMessage(`Current model: ${name}\nProvider: ${provider}\nFull ID: ${state.selectedModel || 'none'}`);
 }
 
 // Append a command feedback message (styled differently from assistant messages)
@@ -3013,9 +3060,9 @@ document.addEventListener('DOMContentLoaded', () => {
     taskPanelToggle.addEventListener('click', toggleTaskPanel);
   }
 
-  // Initialize model selection
+  // Initialize model selection - fetch from server
   if (modelBtn && modelDropdown) {
-    setModel(state.selectedModel);
+    fetchAndPopulateModels();
   }
 });
 
