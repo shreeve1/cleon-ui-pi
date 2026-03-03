@@ -366,30 +366,47 @@ async function resolvePiDirName(projectName) {
     return projectName;
   }
 
-  // Decode Claude project name to path, then encode as Pi dir name
-  const projectPath = decodeProjectName(projectName);
-  const piDirName = encodePiDirName(projectPath);
-
-  // Verify it exists
+  // Get the ACTUAL project path from Claude session files (not lossy decode)
+  const claudeDir = path.join(CLAUDE_PROJECTS, projectName);
+  let actualPath = null;
   try {
-    await fs.access(path.join(PI_SESSIONS, piDirName));
-    return piDirName;
-  } catch {
-    // Try scanning Pi dirs for a cwd match
-    try {
-      const entries = await fs.readdir(PI_SESSIONS, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        if (!entry.name.startsWith('--') || !entry.name.endsWith('--')) continue;
+    actualPath = await extractProjectPath(claudeDir, projectName);
+  } catch { /* ignore */ }
 
-        const piDir = path.join(PI_SESSIONS, entry.name);
-        const resolvedPath = await extractPiProjectPath(piDir, entry.name);
-        if (resolvedPath === projectPath) {
-          return entry.name;
-        }
-      }
-    } catch { /* ignore */ }
+  // If we got a real path, encode it as Pi dir name and check
+  if (actualPath) {
+    const piDirName = encodePiDirName(actualPath);
+    try {
+      await fs.access(path.join(PI_SESSIONS, piDirName));
+      return piDirName;
+    } catch { /* not found, try scanning */ }
   }
+
+  // Also try the lossy decode path (for projects without Claude sessions)
+  const decodedPath = decodeProjectName(projectName);
+  if (decodedPath !== actualPath) {
+    const piDirName = encodePiDirName(decodedPath);
+    try {
+      await fs.access(path.join(PI_SESSIONS, piDirName));
+      return piDirName;
+    } catch { /* not found, try scanning */ }
+  }
+
+  // Fallback: scan Pi dirs for a cwd match
+  const targetPath = actualPath || decodedPath;
+  try {
+    const entries = await fs.readdir(PI_SESSIONS, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (!entry.name.startsWith('--') || !entry.name.endsWith('--')) continue;
+
+      const piDir = path.join(PI_SESSIONS, entry.name);
+      const resolvedPath = await extractPiProjectPath(piDir, entry.name);
+      if (resolvedPath === targetPath) {
+        return entry.name;
+      }
+    }
+  } catch { /* ignore */ }
 
   return null;
 }
