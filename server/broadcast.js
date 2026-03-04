@@ -91,6 +91,36 @@ export function replayBufferToSSE(sessionId, res) {
 }
 
 /**
+ * Replay buffered messages via a callback function (for publishing through event bus)
+ * @param {string} sessionId - The session ID to replay
+ * @param {Function} callback - Function called with each message object: (message) => void
+ * @returns {number} Number of messages replayed, or 0 if no buffer
+ */
+export function replayBufferToCallback(sessionId, callback) {
+  const buffer = sessionMessageBuffers.get(sessionId);
+  if (!buffer || buffer.length === 0) return 0;
+
+  callback({ type: 'replay-start', sessionId });
+  for (const messageStr of buffer) {
+    try {
+      callback(JSON.parse(messageStr));
+    } catch { /* skip unparseable */ }
+  }
+  callback({ type: 'replay-end', sessionId });
+  console.log(`[Broadcast] Replayed ${buffer.length} buffered messages via callback for session ${sessionId}`);
+  return buffer.length;
+}
+
+/**
+ * Check if a session has an active message buffer (i.e., is being buffered because it's streaming)
+ * @param {string} sessionId - The session ID to check
+ * @returns {boolean} True if there's an active buffer for this session
+ */
+export function hasActiveBuffer(sessionId) {
+  return sessionMessageBuffers.has(sessionId);
+}
+
+/**
  * Clear the message buffer for a session
  * @param {string} sessionId - The session ID to clear buffer for
  */

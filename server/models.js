@@ -14,7 +14,7 @@ let cachedConfig = null;
  *   claude-sonnet-4-5 → Claude Sonnet 4.5
  *   gpt-5 → GPT-5
  *   gemini-2.5-pro → Gemini 2.5 Pro
- * 
+ *
  * @param {string} modelId - The model ID (e.g., "claude-sonnet-4-5")
  * @returns {string} - Human-readable display name
  */

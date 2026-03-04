@@ -34,7 +34,7 @@ export function subscribe(username, callback) {
  * Publish an event to all subscribers for a user
  * @param {string} username - The username to publish to
  * @param {Object} event - The event object
- * @param {string} event.type - Event type (e.g., 'claude-message', 'session-created')
+ * @param {string} event.type - Event type (e.g., 'message', 'session-created')
  * @param {string} [event.sessionId] - Optional session ID
  * @param {any} [event.data] - Event payload
  * @param {string} [event.timestamp] - ISO timestamp (auto-set if not provided)

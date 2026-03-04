@@ -50,7 +50,7 @@ const state = {
 function createSession(project, sessionId = null) {
   return {
     id: generateUUID(),              // Internal tab ID
-    sessionId: sessionId,              // Claude SDK session ID (null = new)
+    sessionId: sessionId,              // Pi session ID (null = new)
     project: project,                  // { name, path, displayName }
     isStreaming: false,
     isReplaying: false,
@@ -296,6 +296,11 @@ function closeSession(index) {
     state.ws.send(JSON.stringify({ type: 'abort', sessionId: session.sessionId }));
   }
 
+  // Remove from server registry if session exists
+  if (session.sessionId && state.ws && state.ws.readyState === WebSocket.OPEN) {
+    state.ws.send(JSON.stringify({ type: 'close-session', sessionId: session.sessionId }));
+  }
+
   // Clean up timers
   clearTimeout(session.fileMentionDebounceTimer);
 
@@ -313,6 +318,10 @@ function closeSession(index) {
     state.activeSessionIndex = -1;
     renderSessionBar();
     openSidebar();
+    // Clear the URL hash when all sessions are closed to prevent restoreFromHash
+    // from reopening deleted sessions on page refresh
+    window.history.replaceState(null, '', window.location.pathname);
+    saveSessionState();
     return;
   }
 
@@ -703,7 +712,7 @@ const BUILTIN_COMMANDS = [
 ];
 
 // Built-in command handlers - commands that execute locally in the UI
-// Commands not in this map (like /compact, /verbose) are sent to Claude
+// Commands not in this map are sent to the agent
 const BUILTIN_COMMAND_HANDLERS = {
   '/clear': handleClearCommand,
   '/reset': handleClearCommand, // Same behavior as /clear
@@ -754,6 +763,11 @@ function setModel(modelKey) {
 async function fetchAndPopulateModels() {
   try {
     const token = localStorage.getItem('token');
+    if (!token) {
+      // Not logged in yet - will be fetched after login in showMain()
+      if (modelBtnLabel) modelBtnLabel.textContent = '...';
+      return;
+    }
     const resp = await fetch('/api/models', {
       headers: { 'Authorization': `Bearer ${token}` }
     });
@@ -981,12 +995,24 @@ function showMain() {
   }
   loadCustomCommands();
 
-  restoreSessionState().then(restored => {
+  // Fetch models now that we have a valid token
+  if (modelBtn && modelDropdown) {
+    fetchAndPopulateModels();
+  }
+
+  restoreSessionState().then(async (restored) => {
     if (!restored) {
-      restoreFromHash();
+      await restoreFromHash();
     }
     connectWebSocket();
     connectEventStream();
+
+    // After SSE is connecting, check if the active session is streaming.
+    // Small delay to let SSE establish before the attach call triggers replay.
+    const activeSession = getActiveSession();
+    if (activeSession && activeSession.sessionId) {
+      setTimeout(() => attachToActiveSession(activeSession), 1000);
+    }
   });
 }
 
@@ -1119,9 +1145,25 @@ function handleServerEvent(event) {
   if (event.type === 'state-snapshot') {
     if (event.sessions) {
       for (const serverSession of event.sessions) {
-        const localSession = getSessionBySessionId(serverSession.sessionId);
+        let localSession = getSessionBySessionId(serverSession.sessionId);
         if (localSession) {
           localSession.isStreaming = (serverSession.status === 'streaming');
+        } else if (serverSession.status === 'streaming' && serverSession.projectName) {
+          // Server reports a streaming session we don't have locally.
+          // Auto-adopt it so events can be routed to it.
+          console.log(`[Session] Auto-adopting streaming session ${serverSession.sessionId} (${serverSession.projectName})`);
+          const project = {
+            name: serverSession.projectName,
+            path: serverSession.projectPath || '',
+            displayName: serverSession.displayName || serverSession.projectName,
+          };
+          localSession = createSession(project, serverSession.sessionId);
+          localSession.isStreaming = true;
+          localSession.needsHistoryLoad = true;
+          state.sessions.push(localSession);
+          createSessionContainer(localSession);
+          renderSessionBar();
+          saveSessionState();
         }
       }
     }
@@ -1149,7 +1191,14 @@ function handleServerEvent(event) {
   if (event.type === 'session-status') {
     const session = getSessionBySessionId(event.sessionId);
     if (session) {
+      const wasStreaming = session.isStreaming;
       session.isStreaming = (event.status === 'streaming');
+
+      // When streaming ends, finalize any pending text
+      if (wasStreaming && !session.isStreaming) {
+        flushPendingText(session);
+      }
+
       if (state.sessions.indexOf(session) === state.activeSessionIndex) {
         if (session.isStreaming) {
           abortBtn.classList.remove('hidden');
@@ -1167,6 +1216,37 @@ function handleServerEvent(event) {
           attachBtn.disabled = false;
         }
       }
+    }
+    return;
+  }
+
+  if (event.type === 'session-closed') {
+    // Another tab/device closed this session - remove it locally
+    const index = state.sessions.findIndex(s => s.sessionId === event.sessionId);
+    if (index >= 0) {
+      console.log(`[Session] Remote close received for session ${event.sessionId}`);
+      closeSession(index);
+    }
+    return;
+  }
+
+  if (event.type === 'session-created') {
+    // Another tab/device created a new session - add it locally if we don't have it
+    let localSession = getSessionBySessionId(event.sessionId);
+    if (!localSession && event.project) {
+      console.log(`[Session] Remote session created: ${event.sessionId} (${event.project.name})`);
+      const project = {
+        name: event.project.name,
+        path: event.project.path || '',
+        displayName: event.project.name,
+      };
+      localSession = createSession(project, event.sessionId);
+      localSession.isStreaming = true;
+      localSession.needsHistoryLoad = true;
+      state.sessions.push(localSession);
+      createSessionContainer(localSession);
+      renderSessionBar();
+      saveSessionState();
     }
     return;
   }
@@ -1199,13 +1279,13 @@ function handleWsMessage(msg) {
   switch (msg.type) {
     case 'session-created':
       break;
-    case 'claude-message':
-      handleClaudeMessage(msg.data, session);
+    case 'message':
+      handleMessage(msg.data, session);
       if (isInactive) { session.hasUnread = true; renderSessionBar(); }
       break;
-    case 'claude-done':
+    case 'done':
       finishStreaming(session);
-      sendNotification('Claude finished', session.project.displayName || session.project.name);
+      sendNotification('Agent finished', session.project.displayName || session.project.name);
       if (isInactive) { session.hasUnread = true; renderSessionBar(); }
       break;
     case 'token-usage':
@@ -1318,7 +1398,7 @@ function handleWsMessage(msg) {
   }
 }
 
-function handleClaudeMessage(data, session) {
+function handleMessage(data, session) {
   if (!data) return;
   session = session || getActiveSession();
   if (!session) return;
@@ -1512,6 +1592,7 @@ function finishStreaming(session) {
   session = session || getActiveSession();
   if (!session) return;
   session.isStreaming = false;
+  session.isExternal = false;
   session.pendingPlanConfirmation = null;
   session.activityState = null;
   renderActivityStatus(session);
@@ -1529,6 +1610,7 @@ function finishStreaming(session) {
   if (state.sessions.indexOf(session) === state.activeSessionIndex) {
     abortBtn.classList.add('hidden');
     chatInput.disabled = false;
+    chatInput.placeholder = 'Message...';
     sendBtn.disabled = false;
     modeBtn.disabled = false;
     modelBtn.disabled = false;
@@ -2364,13 +2446,13 @@ chatForm.addEventListener('submit', (e) => {
 
 function sendMessage(content) {
   // Check if this is a local built-in command (e.g., /clear, /help, /tokens)
-  // Commands like /compact and /verbose are NOT in the handler map and will be sent to Claude
+  // Commands not in the handler map are sent to the agent
   if (isLocalBuiltinCommand(content)) {
     const { command, args } = parseCommand(content);
     executeBuiltinCommand(command, args);
     chatInput.value = '';
     chatInput.style.height = 'auto';
-    return; // Don't send to Claude
+    return; // Don't send to agent
   }
 
   const session = getActiveSession();
@@ -3085,11 +3167,11 @@ async function searchProjects(query) {
   
   try {
     const projects = await api(`/api/projects/search?q=${encodeURIComponent(query)}`);
-    
+
     if (projects.length === 0) {
       projectList.innerHTML = `
         <div class="empty-state">
-          ${query ? 'No projects match your search' : 'No Claude projects found'}
+          ${query ? 'No projects match your search' : 'No projects found'}
         </div>
       `;
       return;
@@ -3151,7 +3233,17 @@ async function selectProject(name, path, displayName, skipHashUpdate = false) {
   state.forceNewTab = false;
 
   const activeSession = getActiveSession();
-  const canReuse = activeSession && !activeSession.isStreaming && !forceNewTab;
+  // When switching projects, we should always reuse the tab unless forceNewTab is set.
+  // The isStreaming check was causing issues when a previous session was marked as streaming
+  // (e.g., from a stale server state), preventing tab reuse.
+  const canReuse = activeSession && !forceNewTab;
+
+  console.log('[selectProject] canReuse check:', {
+    hasActiveSession: !!activeSession,
+    isStreaming: activeSession?.isStreaming,
+    forceNewTab,
+    canReuse
+  });
 
   if (canReuse) {
     // Reuse existing session - reset all properties
@@ -3301,7 +3393,7 @@ async function loadSessionHistory(session) {
         session.containerEl.innerHTML = `
           <div class="welcome-message">
             <h2>Session Resumed</h2>
-            <p>Continue your conversation with Claude.</p>
+            <p>Continue your conversation.</p>
           </div>
         `;
       }
@@ -3359,7 +3451,7 @@ async function loadSessionHistory(session) {
     }
   } catch (err) {
     console.warn('[Session] History load failed for', session.sessionId, '- session resume still functional:', err.message);
-    // NOTE: Do NOT clear session.sessionId here - the Claude SDK resume
+    // NOTE: Do NOT clear session.sessionId here - the Pi session resume
     // works independently of UI history display
     if (session.containerEl) {
       session.containerEl.innerHTML = `
@@ -3374,9 +3466,49 @@ async function loadSessionHistory(session) {
   session.needsHistoryLoad = false;
 }
 
+/**
+ * Check if a session is actively streaming on the server and attach to it.
+ * Used on page load, tab switch, and explicit session navigation.
+ */
+async function attachToActiveSession(session) {
+  if (!session || !session.sessionId) return;
+  try {
+    const attachResult = await api(`/api/sessions/${encodeURIComponent(session.sessionId)}/attach`, {});
+    if (attachResult.status === 'streaming') {
+      const source = attachResult.external ? 'CLI' : 'RPC';
+      console.log(`[Session] Attached to streaming session ${session.sessionId} (${source}, ${attachResult.replayed || 0} buffered messages)`);
+      session.isStreaming = true;
+      session.isExternal = !!attachResult.external;
+      if (state.sessions.indexOf(session) === state.activeSessionIndex) {
+        abortBtn.classList.remove('hidden');
+        chatInput.disabled = true;
+        sendBtn.disabled = true;
+        modeBtn.disabled = true;
+        modelBtn.disabled = true;
+        attachBtn.disabled = true;
+        if (session.isExternal) {
+          chatInput.placeholder = 'Session active in terminal...';
+        }
+      }
+    }
+  } catch (err) {
+    console.debug('[Session] Attach check failed (non-critical):', err.message);
+  }
+}
+
 async function resumeSession(sessionId, skipHashUpdate = false) {
+  console.log('[resumeSession] Called with sessionId:', sessionId, 'skipHashUpdate:', skipHashUpdate);
   const session = getActiveSession();
-  if (!session) return;
+  if (!session) {
+    console.log('[resumeSession] No active session, returning');
+    return;
+  }
+
+  console.log('[resumeSession] Active session before:', {
+    project: session.project?.name,
+    sessionId: session.sessionId,
+    isStreaming: session.isStreaming
+  });
 
   session.sessionId = sessionId;
   saveSessionState(); // Persist immediately before history load - ensures sessionId survives even if loadSessionHistory fails
@@ -3386,6 +3518,11 @@ async function resumeSession(sessionId, skipHashUpdate = false) {
   await loadSessionHistory(session);
 
   enableChat();
+
+  // Check if this session is actively streaming on the server (another tab or CLI).
+  // Must come after enableChat() so we can override to streaming state if needed.
+  await attachToActiveSession(session);
+
   saveSessionState();
 }
 
@@ -3427,6 +3564,7 @@ function enableChat() {
   modeBtn.disabled = false;
   modelBtn.disabled = false;
   attachBtn.disabled = false;
+  abortBtn.classList.add('hidden');
   chatInput.focus();
 }
 
@@ -3683,14 +3821,25 @@ window.addEventListener('hashchange', () => {
     const session = getActiveSession();
     const route = parseHash();
 
+    console.log('[hashchange] Triggered:', {
+      sessionProject: session?.project?.name,
+      sessionSessionId: session?.sessionId,
+      routeProject: route?.projectName,
+      routeSessionId: route?.sessionId
+    });
+
     // Guard against redundant reloads - only reload if hash differs from current session
     if (!session || !route) {
+      console.log('[hashchange] No session or route, calling restoreFromHash');
       restoreFromHash();
       return;
     }
 
     if (session.project.name !== route.projectName || session.sessionId !== route.sessionId) {
+      console.log('[hashchange] Hash differs from session, calling restoreFromHash');
       restoreFromHash();
+    } else {
+      console.log('[hashchange] Hash matches session, skipping restoreFromHash');
     }
   }
 });

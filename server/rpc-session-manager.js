@@ -144,12 +144,31 @@ class RpcSessionManager {
     try {
       const stateResponse = await rpc.getState();
       if (stateResponse?.data?.sessionFile) {
-        session.sessionFile = stateResponse.data.sessionFile;
-        sessionFile = session.sessionFile;
-        // Persist mapping
-        this.#sessionFileMap.set(sessionId, sessionFile);
-        await this.#saveSessionFileMap();
-        console.log(`[RpcSessionManager] Session ${sessionId} file: ${sessionFile}`);
+        const reportedFile = stateResponse.data.sessionFile;
+
+        // Only update mapping if this is a genuinely new session.
+        // If we expected to resume from sessionFile but Pi reports a different file,
+        // that means resume failed and Pi created a new empty session.
+        // We should NOT overwrite our mapping in that case.
+        if (isNew) {
+          session.sessionFile = reportedFile;
+          sessionFile = reportedFile;
+          this.#sessionFileMap.set(sessionId, sessionFile);
+          await this.#saveSessionFileMap();
+          console.log(`[RpcSessionManager] Session ${sessionId} file: ${sessionFile}`);
+        } else if (reportedFile !== sessionFile) {
+          // Resume failed — Pi created a new session instead of resuming
+          console.error(
+            `[RpcSessionManager] WARNING: Session ${sessionId} resume failed! ` +
+            `Expected: ${sessionFile}, Got: ${reportedFile}. ` +
+            `Context may be lost. Keeping original mapping.`
+          );
+          // Keep the original sessionFile in our mapping, but use the new RPC
+          // The user will see lost context, but at least we don't orphan the original file
+        } else {
+          // Successful resume — files match
+          console.log(`[RpcSessionManager] Session ${sessionId} resumed from ${sessionFile}`);
+        }
       }
     } catch (err) {
       console.warn(`[RpcSessionManager] Failed to get session file for ${sessionId}:`, err.message);

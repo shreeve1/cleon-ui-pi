@@ -5,7 +5,6 @@ import os from 'os';
 import { glob } from 'glob';
 
 const router = express.Router();
-const CLAUDE_PROJECTS = path.join(os.homedir(), '.claude', 'projects');
 const PI_SESSIONS = path.join(os.homedir(), '.pi', 'agent', 'sessions');
 
 // Constants
@@ -29,7 +28,7 @@ function encodePiDirName(projectPath) {
  * Decode a Pi session directory name back to a project path.
  * e.g. --Users-james-1-testytech-homelab-- → /Users/james/1-testytech/homelab
  *
- * Note: This is lossy for paths with actual dashes — same limitation as Claude's encoding.
+ * Note: This is lossy for paths with actual dashes.
  */
 function decodePiDirName(dirName) {
   return '/' + dirName.slice(2, -2).replace(/-/g, '/');
@@ -43,38 +42,7 @@ router.get('/search', async (req, res) => {
   const query = (req.query.q || '').toLowerCase().trim();
 
   try {
-    // Collect projects from both sources, keyed by project path
-    const projectMap = new Map(); // path → { name, path, displayName, claudeCount, piCount, source }
-
-    // ── Read from Claude projects directory ──
-    try {
-      const entries = await fs.readdir(CLAUDE_PROJECTS, { withFileTypes: true });
-
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-
-        const projectDir = path.join(CLAUDE_PROJECTS, entry.name);
-        const actualPath = await extractProjectPath(projectDir, entry.name);
-
-        if (query && !actualPath.toLowerCase().includes(query)) continue;
-
-        const files = await fs.readdir(projectDir);
-        const sessions = files.filter(f => f.endsWith('.jsonl') && !f.startsWith('agent-'));
-
-        projectMap.set(actualPath, {
-          name: entry.name,
-          path: actualPath,
-          displayName: path.basename(actualPath),
-          claudeCount: sessions.length,
-          piCount: 0,
-          source: 'claude',
-        });
-      }
-    } catch (err) {
-      if (err.code !== 'ENOENT') {
-        console.error('[Projects] Error reading Claude projects:', err);
-      }
-    }
+    const projects = [];
 
     // ── Read from Pi sessions directory ──
     try {
@@ -96,38 +64,18 @@ router.get('/search', async (req, res) => {
         } catch { continue; }
         const piSessions = piFiles.filter(f => f.endsWith('.jsonl'));
 
-        const existing = projectMap.get(actualPath);
-        if (existing) {
-          // Merge: project exists in both Claude and Pi
-          existing.piCount = piSessions.length;
-          existing.source = 'both';
-        } else {
-          projectMap.set(actualPath, {
-            name: entry.name,
-            path: actualPath,
-            displayName: path.basename(actualPath),
-            claudeCount: 0,
-            piCount: piSessions.length,
-            source: 'pi',
-          });
-        }
+        projects.push({
+          name: entry.name,
+          path: actualPath,
+          displayName: path.basename(actualPath),
+          sessionCount: piSessions.length,
+          source: 'pi',
+        });
       }
     } catch (err) {
       if (err.code !== 'ENOENT') {
         console.error('[Projects] Error reading Pi sessions:', err);
       }
-    }
-
-    // Build response
-    const projects = [];
-    for (const proj of projectMap.values()) {
-      projects.push({
-        name: proj.name,
-        path: proj.path,
-        displayName: proj.displayName,
-        sessionCount: proj.claudeCount + proj.piCount,
-        source: proj.source,
-      });
     }
 
     // Sort by path
@@ -142,82 +90,51 @@ router.get('/search', async (req, res) => {
 });
 
 /**
- * GET /api/projects/:name/sessions?source=auto
+ * GET /api/projects/:name/sessions
  * List sessions for a project, sorted by most recent.
- * source: 'claude' | 'pi' | 'auto' (default: auto — checks both)
  */
 router.get('/:name/sessions', async (req, res) => {
+  // Explicitly disable caching for session lists (they change frequently)
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  
   const projectName = req.params.name;
-  const source = req.query.source || 'auto';
 
   try {
     const sessions = [];
 
-    // ── Claude sessions ──
-    if (source === 'claude' || source === 'auto') {
-      const claudeDir = path.join(CLAUDE_PROJECTS, projectName);
+    // ── Pi sessions ──
+    const piDirName = await resolvePiDirName(projectName);
+    if (piDirName) {
+      const piDir = path.join(PI_SESSIONS, piDirName);
       try {
-        const files = await fs.readdir(claudeDir);
-        const jsonlFiles = files.filter(f => f.endsWith('.jsonl') && !f.startsWith('agent-'));
+        const files = await fs.readdir(piDir);
+        const jsonlFiles = files.filter(f => f.endsWith('.jsonl'));
 
-        const claudeSessions = await Promise.all(jsonlFiles.map(async (file) => {
-          const filePath = path.join(claudeDir, file);
+        const piSessions = await Promise.all(jsonlFiles.map(async (file) => {
+          const filePath = path.join(piDir, file);
           const stats = await fs.stat(filePath);
-          const preview = await getSessionPreview(filePath, 'claude');
-          const sessionId = path.basename(file, '.jsonl');
+          const preview = await getSessionPreview(filePath);
+
+          // Extract UUID from filename: 2026-03-03T00-24-17-226Z_e824d2d4-297b-4b26-86ba-4d927e7a376b.jsonl
+          const basename = path.basename(file, '.jsonl');
+          const uuidMatch = basename.match(/_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/);
+          const sessionId = uuidMatch ? uuidMatch[1] : basename;
 
           return {
             id: sessionId,
             file,
             lastModified: stats.mtime.toISOString(),
             preview,
-            source: 'claude',
+            source: 'pi',
           };
         }));
 
-        sessions.push(...claudeSessions);
+        sessions.push(...piSessions);
       } catch (err) {
         if (err.code !== 'ENOENT') {
-          console.error('[Projects] Error reading Claude sessions:', err);
-        }
-      }
-    }
-
-    // ── Pi sessions ──
-    if (source === 'pi' || source === 'auto') {
-      // Determine Pi dir name: if the project name already looks like a Pi dir, use it directly.
-      // Otherwise, we need to find the Pi dir that matches this project.
-      const piDirName = await resolvePiDirName(projectName);
-      if (piDirName) {
-        const piDir = path.join(PI_SESSIONS, piDirName);
-        try {
-          const files = await fs.readdir(piDir);
-          const jsonlFiles = files.filter(f => f.endsWith('.jsonl'));
-
-          const piSessions = await Promise.all(jsonlFiles.map(async (file) => {
-            const filePath = path.join(piDir, file);
-            const stats = await fs.stat(filePath);
-            const preview = await getSessionPreview(filePath, 'pi');
-
-            // Extract UUID from filename: 2026-03-03T00-24-17-226Z_e824d2d4-297b-4b26-86ba-4d927e7a376b.jsonl
-            const basename = path.basename(file, '.jsonl');
-            const uuidMatch = basename.match(/_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/);
-            const sessionId = uuidMatch ? uuidMatch[1] : basename;
-
-            return {
-              id: sessionId,
-              file,
-              lastModified: stats.mtime.toISOString(),
-              preview,
-              source: 'pi',
-            };
-          }));
-
-          sessions.push(...piSessions);
-        } catch (err) {
-          if (err.code !== 'ENOENT') {
-            console.error('[Projects] Error reading Pi sessions:', err);
-          }
+          console.error('[Projects] Error reading Pi sessions:', err);
         }
       }
     }
@@ -240,10 +157,12 @@ router.get('/:name/sessions', async (req, res) => {
 router.get('/:name/sessions/:sessionId/messages', async (req, res) => {
   const { name, sessionId } = req.params;
   const limit = parseInt(req.query.limit) || 100;
-  const source = req.query.source || 'auto';
-  
+
+  console.log(`[Projects] GET messages for project="${name}" sessionId="${sessionId}"`);
+
   try {
-    const messages = await getSessionMessages(name, sessionId, limit, source);
+    const messages = await getSessionMessages(name, sessionId, limit);
+    console.log(`[Projects] Returning ${messages.length} messages`);
     res.json({ messages });
   } catch (err) {
     console.error('[Projects] Messages error:', err);
@@ -258,13 +177,6 @@ router.get('/:name/sessions/:sessionId/messages', async (req, res) => {
 router.get('/:name/path', async (req, res) => {
   const projectName = req.params.name;
 
-  // Try Claude directory first
-  const claudeDir = path.join(CLAUDE_PROJECTS, projectName);
-  try {
-    const actualPath = await extractProjectPath(claudeDir, projectName);
-    return res.json({ path: actualPath });
-  } catch { /* fall through */ }
-
   // Try Pi directory
   if (projectName.startsWith('--') && projectName.endsWith('--')) {
     const piDir = path.join(PI_SESSIONS, projectName);
@@ -275,42 +187,10 @@ router.get('/:name/path', async (req, res) => {
   }
 
   // Fallback to decoded name
-  res.json({ path: decodeProjectName(projectName) });
+  res.json({ path: decodePiDirName(projectName) });
 });
 
 // ─── Helpers: Project path extraction ───────────────────────────────
-
-/**
- * Extract actual project path from Claude session files (cwd field).
- * Falls back to decoding the directory name.
- */
-async function extractProjectPath(projectDir, projectName) {
-  try {
-    const files = await fs.readdir(projectDir);
-    const jsonlFiles = files.filter(f => f.endsWith('.jsonl') && !f.startsWith('agent-'));
-
-    for (const jsonlFile of jsonlFiles) {
-      try {
-        const content = await fs.readFile(path.join(projectDir, jsonlFile), 'utf8');
-        const lines = content.split('\n').filter(Boolean);
-
-        for (const line of lines.slice(0, 30)) {
-          try {
-            const entry = JSON.parse(line);
-            if (entry.cwd) {
-              return entry.cwd;
-            }
-          } catch { /* skip malformed */ }
-        }
-      } catch { /* skip unreadable files */ }
-    }
-
-    return decodeProjectName(projectName);
-
-  } catch {
-    return decodeProjectName(projectName);
-  }
-}
 
 /**
  * Extract actual project path from Pi session files.
@@ -344,21 +224,9 @@ async function extractPiProjectPath(piDir, dirName) {
 }
 
 /**
- * Decode Claude project name back to path.
- * Note: This is lossy for paths with actual dashes.
- */
-function decodeProjectName(name) {
-  if (name.startsWith('-')) {
-    return '/' + name.slice(1).replace(/-/g, '/');
-  }
-  return name.replace(/-/g, '/');
-}
-
-/**
  * Resolve the Pi directory name for a given project name.
  * If the name is already a Pi dir name (--..--), use it directly.
- * Otherwise, try to find a matching Pi dir by decoding the Claude project name
- * to a path and encoding it as a Pi dir name.
+ * Otherwise, try to find a matching Pi dir by path.
  */
 async function resolvePiDirName(projectName) {
   // Already a Pi dir name
@@ -366,34 +234,14 @@ async function resolvePiDirName(projectName) {
     return projectName;
   }
 
-  // Get the ACTUAL project path from Claude session files (not lossy decode)
-  const claudeDir = path.join(CLAUDE_PROJECTS, projectName);
-  let actualPath = null;
+  // Try encoding as Pi dir name and check
+  const piDirName = encodePiDirName(projectName);
   try {
-    actualPath = await extractProjectPath(claudeDir, projectName);
-  } catch { /* ignore */ }
-
-  // If we got a real path, encode it as Pi dir name and check
-  if (actualPath) {
-    const piDirName = encodePiDirName(actualPath);
-    try {
-      await fs.access(path.join(PI_SESSIONS, piDirName));
-      return piDirName;
-    } catch { /* not found, try scanning */ }
-  }
-
-  // Also try the lossy decode path (for projects without Claude sessions)
-  const decodedPath = decodeProjectName(projectName);
-  if (decodedPath !== actualPath) {
-    const piDirName = encodePiDirName(decodedPath);
-    try {
-      await fs.access(path.join(PI_SESSIONS, piDirName));
-      return piDirName;
-    } catch { /* not found, try scanning */ }
-  }
+    await fs.access(path.join(PI_SESSIONS, piDirName));
+    return piDirName;
+  } catch { /* not found, try scanning */ }
 
   // Fallback: scan Pi dirs for a cwd match
-  const targetPath = actualPath || decodedPath;
   try {
     const entries = await fs.readdir(PI_SESSIONS, { withFileTypes: true });
     for (const entry of entries) {
@@ -402,7 +250,7 @@ async function resolvePiDirName(projectName) {
 
       const piDir = path.join(PI_SESSIONS, entry.name);
       const resolvedPath = await extractPiProjectPath(piDir, entry.name);
-      if (resolvedPath === targetPath) {
+      if (resolvedPath === projectName) {
         return entry.name;
       }
     }
@@ -415,9 +263,8 @@ async function resolvePiDirName(projectName) {
 
 /**
  * Extract first meaningful user message as session preview.
- * Handles both Claude and Pi JSONL formats.
  */
-async function getSessionPreview(filePath, format = 'claude') {
+async function getSessionPreview(filePath) {
   try {
     const content = await fs.readFile(filePath, 'utf8');
     const lines = content.split('\n').filter(Boolean);
@@ -426,34 +273,14 @@ async function getSessionPreview(filePath, format = 'claude') {
       try {
         const entry = JSON.parse(line);
 
-        if (format === 'pi') {
-          // Pi format: { type: "message", message: { role: "user", content: [...] } }
-          if (entry.type !== 'message') continue;
-          if (entry.message?.role !== 'user') continue;
+        // Pi format: { type: "message", message: { role: "user", content: [...] } }
+        if (entry.type !== 'message') continue;
+        if (entry.message?.role !== 'user') continue;
 
-          const text = extractPiTextContent(entry.message.content);
-          if (text && !text.startsWith('<') && !text.startsWith('{') && !text.includes('CRITICAL:')) {
-            const preview = text.slice(0, SESSION_PREVIEW_LENGTH);
-            return preview + (text.length > SESSION_PREVIEW_LENGTH ? '...' : '');
-          }
-        } else {
-          // Claude format: { type: "user", ... } or { message: { role: "user", ... } }
-          if (entry.type === 'user' || entry.message?.role === 'user') {
-            let text = entry.message?.content || entry.content;
-
-            if (Array.isArray(text)) {
-              text = text.find(t => t.type === 'text')?.text || text[0]?.text;
-            }
-
-            if (typeof text === 'string' &&
-                text.length > 0 &&
-                !text.startsWith('<') &&
-                !text.startsWith('{') &&
-                !text.includes('CRITICAL:')) {
-              const preview = text.slice(0, SESSION_PREVIEW_LENGTH);
-              return preview + (text.length > SESSION_PREVIEW_LENGTH ? '...' : '');
-            }
-          }
+        const text = extractPiTextContent(entry.message.content);
+        if (text && !text.startsWith('<') && !text.startsWith('{') && !text.includes('CRITICAL:')) {
+          const preview = text.slice(0, SESSION_PREVIEW_LENGTH);
+          return preview + (text.length > SESSION_PREVIEW_LENGTH ? '...' : '');
         }
       } catch { /* skip malformed */ }
     }
@@ -482,60 +309,14 @@ function extractPiTextContent(content) {
 
 // ─── Helpers: Session messages ──────────────────────────────────────
 
-async function getSessionMessages(projectName, sessionId, limit = 100, source = 'auto') {
-  let messages = [];
+async function getSessionMessages(projectName, sessionId, limit = 100) {
+  console.log(`[getSessionMessages] projectName="${projectName}" sessionId="${sessionId}"`);
 
-  // ── Try Claude format ──
-  if (source === 'claude' || source === 'auto') {
-    const claudeMessages = await getClaudeSessionMessages(projectName, sessionId, limit);
-    if (claudeMessages.length > 0) {
-      messages = claudeMessages;
-    }
-  }
+  const piMessages = await getPiSessionMessages(projectName, sessionId, limit);
+  console.log(`[getSessionMessages] Pi: ${piMessages.length} messages`);
 
-  // ── Try Pi format ──
-  if ((source === 'pi' || source === 'auto') && messages.length === 0) {
-    const piMessages = await getPiSessionMessages(projectName, sessionId, limit);
-    if (piMessages.length > 0) {
-      messages = piMessages;
-    }
-  }
-
-  messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-  return messages.slice(-limit);
-}
-
-/**
- * Get messages from a Claude session file.
- * Claude entries have a sessionId field to filter by.
- */
-async function getClaudeSessionMessages(projectName, sessionId, limit) {
-  try {
-    const projectDir = path.join(CLAUDE_PROJECTS, projectName);
-    const files = await fs.readdir(projectDir);
-    const jsonlFiles = files.filter(f => f.endsWith('.jsonl') && !f.startsWith('agent-'));
-
-    const messages = [];
-
-    for (const file of jsonlFiles) {
-      const content = await fs.readFile(path.join(projectDir, file), 'utf8');
-      const lines = content.split('\n').filter(Boolean);
-
-      for (const line of lines) {
-        try {
-          const entry = JSON.parse(line);
-          if (entry.sessionId !== sessionId) continue;
-
-          const msg = parseClaudeMessageEntry(entry);
-          if (msg) messages.push(msg);
-        } catch { /* skip malformed */ }
-      }
-    }
-
-    return messages;
-  } catch {
-    return [];
-  }
+  piMessages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  return piMessages.slice(-limit);
 }
 
 /**
@@ -596,53 +377,6 @@ async function getPiSessionMessages(projectName, sessionId, limit) {
   } catch {
     return [];
   }
-}
-
-// ─── Message parsing: Claude format ─────────────────────────────────
-
-function parseClaudeMessageEntry(entry) {
-  const timestamp = entry.timestamp || new Date().toISOString();
-  const messageId = entry.messageId || entry.id || null;
-  const model = entry.model || null;
-
-  if (entry.type === 'user' || entry.message?.role === 'user') {
-    let text = entry.message?.content;
-    if (Array.isArray(text)) {
-      text = text.filter(t => t.type === 'text').map(t => t.text).join('\n');
-    }
-    if (typeof text === 'string' && text.length > 0 && !text.startsWith('<') && !text.startsWith('{')) {
-      return { role: 'user', content: text, timestamp, messageId };
-    }
-  }
-
-  if (entry.type === 'assistant' || entry.message?.role === 'assistant') {
-    const content = entry.message?.content;
-    if (Array.isArray(content)) {
-      const textParts = content.filter(c => c.type === 'text').map(c => c.text);
-      if (textParts.length > 0) {
-        return { role: 'assistant', content: textParts.join('\n'), timestamp, messageId, model };
-      }
-
-      const toolUse = content.find(c => c.type === 'tool_use');
-      if (toolUse) {
-        const summary = buildToolSummary(toolUse.name, toolUse.input);
-        return {
-          role: 'tool',
-          tool: toolUse.name,
-          input: toolUse.input,
-          timestamp,
-          messageId,
-          model,
-          summary
-        };
-      }
-    }
-    if (typeof content === 'string') {
-      return { role: 'assistant', content, timestamp, messageId, model };
-    }
-  }
-
-  return null;
 }
 
 // ─── Message parsing: Pi format ─────────────────────────────────────
@@ -782,18 +516,19 @@ router.get('/:name/files/search', async (req, res) => {
   const query = (req.query.q || '').trim();
 
   try {
-    // Get the actual project path — try Claude then Pi
+    // Get the actual project path from Pi
     let actualPath;
-    const claudeDir = path.join(CLAUDE_PROJECTS, name);
-    try {
-      actualPath = await extractProjectPath(claudeDir, name);
-    } catch {
-      // Try Pi
-      if (name.startsWith('--') && name.endsWith('--')) {
-        const piDir = path.join(PI_SESSIONS, name);
-        actualPath = await extractPiProjectPath(piDir, name);
+    if (name.startsWith('--') && name.endsWith('--')) {
+      const piDir = path.join(PI_SESSIONS, name);
+      actualPath = await extractPiProjectPath(piDir, name);
+    } else {
+      // Try to resolve as a path
+      const piDirName = await resolvePiDirName(name);
+      if (piDirName) {
+        const piDir = path.join(PI_SESSIONS, piDirName);
+        actualPath = await extractPiProjectPath(piDir, piDirName);
       } else {
-        actualPath = decodeProjectName(name);
+        actualPath = name;
       }
     }
 
@@ -806,7 +541,6 @@ router.get('/:name/files/search', async (req, res) => {
     const resolvedPath = path.resolve(actualPath);
 
     // Verify the resolved path doesn't escape to sensitive directories
-    const homeDir = os.homedir();
     const sensitivePatterns = ['/etc', '/var', '/usr', '/bin', '/sbin', '/root'];
     if (sensitivePatterns.some(p => resolvedPath.startsWith(p))) {
       return res.status(403).json({ error: 'Access to this path is not allowed' });
@@ -845,7 +579,7 @@ router.get('/:name/files/search', async (req, res) => {
         '**/.git/**',
         '**/dist/**',
         '**/build/**',
-        '**/.claude/**',
+        '**/.pi/**',
         '**/coverage/**',
         '**/*.log',
         '**/.DS_Store'

@@ -262,7 +262,7 @@ const activeSessions = new Map();
 const toolStartTimes = new Map();
 const toolUseToTaskMap = new Map();
 
-// ─── Helpers (mirrored from claude.js) ──────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────
 
 function sendMessage(ws, data, username) {
   if (data.sessionId) {
@@ -365,7 +365,7 @@ function getToolSummary(tool, input) {
 /**
  * Transform a Pi RPC event into a Cleon UI message (or null to skip).
  * Returns { type, ...data } matching what the frontend expects inside
- * a `claude-message` wrapper.
+ * a `message` wrapper.
  */
 function transformEvent(event, sessionId, sessionInfo) {
   const timestamp = generateTimestamp();
@@ -573,7 +573,7 @@ function transformEvent(event, sessionId, sessionInfo) {
     }
 
     case 'agent_end': {
-      // Signals completion — handled by the main loop as 'claude-done'
+      // Signals completion — handled by the main loop as 'done'
       return { type: '_agent_end' };
     }
 
@@ -696,7 +696,7 @@ function transformEvent(event, sessionId, sessionInfo) {
  * Extract token usage from an event or its nested fields.
  */
 
-// ─── Exported API (matches claude.js interface) ─────────────────────
+// ─── Exported API ───────────────────────────────────────────────────
 
 /**
  * Handle incoming chat message from WebSocket.
@@ -719,7 +719,7 @@ export async function handleChat(msg, ws, username) {
         try {
           const base64Data = att.data.replace(/^data:image\/\w+;base64,/, '');
           const ext = att.mediaType?.split('/')[1] || 'png';
-          const tempDir = path.join(projectPath, '.claude-uploads');
+          const tempDir = path.join(projectPath, '.pi-uploads');
           await fs.mkdir(tempDir, { recursive: true });
           const tempPath = path.join(tempDir, `upload-${randomUUID()}.${ext}`);
           await fs.writeFile(tempPath, Buffer.from(base64Data, 'base64'));
@@ -777,7 +777,8 @@ export async function handleChat(msg, ws, username) {
 
     // If this is a "new" session and client didn't have a sessionId yet, tell them
     if (!sessionId) {
-      sendMessage(ws, { type: 'session-created', sessionId: currentSessionId }, username);
+      // Broadcast to all user's connections (including other tabs/devices)
+      publish(username, { type: 'session-created', sessionId: currentSessionId, project: { name: projectDisplayName, path: projectPath } });
     }
 
     // Set the requested model before prompting
@@ -827,7 +828,7 @@ export async function handleChat(msg, ws, username) {
 
         // Forward to frontend
         sendMessage(ws, {
-          type: 'claude-message',
+          type: 'message',
           sessionId: currentSessionId,
           data: transformed,
         }, username);
@@ -851,7 +852,7 @@ export async function handleChat(msg, ws, username) {
 
     // Stream complete
     console.log(`[Pi] Query complete - session: ${currentSessionId}`);
-    sendMessage(ws, { type: 'claude-done', sessionId: currentSessionId }, username);
+    sendMessage(ws, { type: 'done', sessionId: currentSessionId }, username);
 
   } catch (err) {
     console.error('[Pi] Query error:', err);

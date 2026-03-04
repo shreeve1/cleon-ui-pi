@@ -85,33 +85,25 @@ async function discoverCommands(directory, source) {
 }
 
 /**
- * Get global commands from ~/.claude/commands/
- * @returns {Promise<Array>} Array of global command objects
- */
-export async function getGlobalCommands() {
-  const globalDir = path.join(os.homedir(), '.claude', 'commands');
-  return discoverCommands(globalDir, 'global');
-}
-
-/**
- * Get project-specific commands from <projectPath>/.claude/commands/
+ * Get project-specific commands from <projectPath>/.pi/commands/
  * @param {string} projectPath - The project's filesystem path
  * @returns {Promise<Array>} Array of project command objects
  */
 export async function getProjectCommands(projectPath) {
   if (!projectPath) return [];
 
-  const projectDir = path.join(projectPath, '.claude', 'commands');
+  const projectDir = path.join(projectPath, '.pi', 'commands');
   return discoverCommands(projectDir, 'project');
 }
 
 /**
- * Get skills from ~/.claude/skills/
+ * Get skills from a directory (Pi skill format)
  * Only includes top-level skills that have a SKILL.md file.
+ * @param {string} skillsDir - Path to skills directory
+ * @param {string} source - Source identifier
  * @returns {Promise<Array>} Array of skill objects
  */
-export async function getSkills() {
-  const skillsDir = path.join(os.homedir(), '.claude', 'skills');
+async function discoverSkills(skillsDir, source) {
   const skills = [];
 
   try {
@@ -119,6 +111,9 @@ export async function getSkills() {
 
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
+
+      // Skip hidden directories and common non-skill directories
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
 
       const skillFile = path.join(skillsDir, entry.name, 'SKILL.md');
       try {
@@ -129,7 +124,7 @@ export async function getSkills() {
           name: `/${frontmatter.name || entry.name}`,
           description: frontmatter.description || `Run ${entry.name} skill`,
           path: skillFile,
-          source: 'skill'
+          source
         });
       } catch {
         // No SKILL.md in this directory - skip it
@@ -145,30 +140,80 @@ export async function getSkills() {
 }
 
 /**
- * Get all commands merged (skills + global + project, with project taking precedence)
+ * Get skills from ~/.pi/agent/skills/
+ * Only includes top-level skills that have a SKILL.md file.
+ * @returns {Promise<Array>} Array of pi skill objects
+ */
+export async function getPiSkills() {
+  const skillsDir = path.join(os.homedir(), '.pi', 'agent', 'skills');
+  return discoverSkills(skillsDir, 'pi-skill');
+}
+
+/**
+ * Get prompt templates from ~/.pi/agent/prompts/
+ * These are markdown files that serve as reusable prompts.
+ * @returns {Promise<Array>} Array of prompt template objects
+ */
+export async function getPiPrompts() {
+  const promptsDir = path.join(os.homedir(), '.pi', 'agent', 'prompts');
+  const prompts = [];
+
+  try {
+    const entries = await fs.readdir(promptsDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+
+      const filePath = path.join(promptsDir, entry.name);
+      try {
+        const content = await fs.readFile(filePath, 'utf-8');
+        const frontmatter = parseFrontmatter(content);
+        const fileName = path.basename(entry.name, '.md');
+
+        prompts.push({
+          name: `/${fileName}`,
+          description: frontmatter.description || `Run ${fileName} prompt template`,
+          path: filePath,
+          source: 'pi-prompt'
+        });
+      } catch (err) {
+        console.warn(`[Prompts] Failed to parse ${filePath}:`, err.message);
+      }
+    }
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      console.warn(`[Prompts] Error reading ${promptsDir}:`, err.message);
+    }
+  }
+
+  return prompts;
+}
+
+/**
+ * Get all commands merged (pi prompts + pi skills + project, with project taking precedence)
  * @param {string} projectPath - Optional project path
  * @returns {Promise<Array>} Merged array of commands
  */
 export async function getAllCommands(projectPath) {
-  const [globalCommands, projectCommands, skills] = await Promise.all([
-    getGlobalCommands(),
+  const [projectCommands, piSkills, piPrompts] = await Promise.all([
     getProjectCommands(projectPath),
-    getSkills()
+    getPiSkills(),
+    getPiPrompts()
   ]);
 
   const commandMap = new Map();
 
-  // Skills first (lowest precedence)
-  for (const skill of skills) {
+  // Pi prompts first (lowest precedence)
+  for (const prompt of piPrompts) {
+    commandMap.set(prompt.name, prompt);
+  }
+
+  // Pi skills override prompts
+  for (const skill of piSkills) {
     commandMap.set(skill.name, skill);
   }
 
-  // Global commands override skills
-  for (const cmd of globalCommands) {
-    commandMap.set(cmd.name, cmd);
-  }
-
-  // Project commands override global commands and skills
+  // Project commands override everything
   for (const cmd of projectCommands) {
     commandMap.set(cmd.name, cmd);
   }

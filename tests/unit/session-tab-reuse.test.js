@@ -116,12 +116,13 @@ describe('Static Analysis - Code Structure', () => {
     expect(clearIndex).toBeLessThan(canReuseIndex);
   });
 
-  it('createSession is called exactly 3 times in the source (1 definition + 2 call sites)', () => {
+  it('createSession is called exactly 4 times in the source (1 definition + 3 call sites)', () => {
     // Count all occurrences of createSession( in the source
-    // 1 = function definition, 2 = restoreSessionState, 3 = selectProject new-tab path
+    // 1 = function definition, 2 = restoreSessionState, 3 = selectProject new-tab path,
+    // 4 = state-snapshot auto-adopt for streaming sessions from other tabs
     const matches = appJs.match(/createSession\(/g);
     expect(matches).not.toBeNull();
-    expect(matches.length).toBe(3);
+    expect(matches.length).toBe(4);
   });
 });
 

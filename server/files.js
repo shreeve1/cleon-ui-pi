@@ -7,55 +7,76 @@ import logger from './logger.js';
 
 const router = express.Router();
 
-// Use the same project directory as projects.js
-const CLAUDE_PROJECTS = path.join(os.homedir(), '.claude', 'projects');
+// Pi sessions directory
+const PI_SESSIONS = path.join(os.homedir(), '.pi', 'agent', 'sessions');
 
 const MAX_TREE_FILES = 500; // Back to reasonable limit - will use lazy loading instead
 
 /**
- * Extract actual project path from session files (cwd field)
- * Falls back to decoding the directory name
- * This matches the logic in projects.js
+ * Extract actual project path from Pi session files.
+ * Pi session header has { type: "session", cwd: "/path/to/project" }.
+ * Falls back to decoding the directory name.
  */
-async function extractProjectPath(projectDir, projectName) {
+async function extractPiProjectPath(piDir, dirName) {
   try {
-    const files = await fs.readdir(projectDir);
-    const jsonlFiles = files.filter(f => f.endsWith('.jsonl') && !f.startsWith('agent-'));
+    const files = await fs.readdir(piDir);
+    const jsonlFiles = files.filter(f => f.endsWith('.jsonl'));
 
-    // Try each session file until we find one with a cwd field
-    for (const sessionFile of jsonlFiles) {
+    for (const jsonlFile of jsonlFiles) {
       try {
-        const content = await fs.readFile(path.join(projectDir, sessionFile), 'utf8');
-        const lines = content.split('\n').filter(Boolean);
+        const content = await fs.readFile(path.join(piDir, jsonlFile), 'utf8');
+        // Only need the first line (session header)
+        const firstLine = content.split('\n')[0];
+        if (!firstLine) continue;
 
-        for (const line of lines) {
-          const entry = JSON.parse(line);
-          if (entry.cwd) {
-            return entry.cwd;
-          }
+        const entry = JSON.parse(firstLine);
+        if (entry.type === 'session' && entry.cwd) {
+          return entry.cwd;
         }
-      } catch {
-        continue;
-      }
+      } catch { /* skip malformed */ }
     }
 
-    // Fallback: decode the project name
-    return decodeURIComponent(projectName);
+    return decodePiDirName(dirName);
+
   } catch {
-    return decodeURIComponent(projectName);
+    return decodePiDirName(dirName);
   }
 }
 
 /**
- * Decode project name from hash format
+ * Decode a Pi session directory name back to a project path.
+ * e.g. --Users-james-1-testytech-homelab-- → /Users/james/1-testytech/homelab
  */
-function decodeURIComponentSafe(str) {
-  try {
-    return decodeURIComponent(str);
-  } catch {
-    return str;
-  }
+function decodePiDirName(dirName) {
+  return '/' + dirName.slice(2, -2).replace(/-/g, '/');
 }
+
+/**
+ * Encode a project path to Pi's session directory name format.
+ */
+function encodePiDirName(projectPath) {
+  return '--' + projectPath.slice(1).replace(/\//g, '-') + '--';
+}
+
+/**
+ * Resolve the Pi directory name for a given project name.
+ */
+async function resolvePiDirName(projectName) {
+  // Already a Pi dir name
+  if (projectName.startsWith('--') && projectName.endsWith('--')) {
+    return projectName;
+  }
+
+  // Try encoding as Pi dir name and check
+  const piDirName = encodePiDirName(projectName);
+  try {
+    await fs.access(path.join(PI_SESSIONS, piDirName));
+    return piDirName;
+  } catch { /* not found */ }
+
+  return null;
+}
+
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 // Editable file extensions (text-based files only)
@@ -255,9 +276,17 @@ router.get('/:project/tree', async (req, res) => {
   const { project } = req.params;
 
   try {
-    // Get the actual project path (resolve from session files like projects.js does)
-    const projectDir = path.join(CLAUDE_PROJECTS, project);
-    const actualPath = await extractProjectPath(projectDir, project);
+    // Get the actual project path from Pi sessions
+    const piDirName = await resolvePiDirName(project);
+    let actualPath;
+
+    if (piDirName) {
+      const piDir = path.join(PI_SESSIONS, piDirName);
+      actualPath = await extractPiProjectPath(piDir, piDirName);
+    } else {
+      // Treat project as a direct path
+      actualPath = project;
+    }
 
     // Verify project exists
     try {
@@ -333,9 +362,18 @@ router.get('/:project/ls', async (req, res) => {
   const dirPath = req.query.path || '';
 
   try {
-    // Get the actual project path
-    const projectDir = path.join(CLAUDE_PROJECTS, project);
-    const actualPath = await extractProjectPath(projectDir, project);
+    // Get the actual project path from Pi sessions
+    const piDirName = await resolvePiDirName(project);
+    let actualPath;
+
+    if (piDirName) {
+      const piDir = path.join(PI_SESSIONS, piDirName);
+      actualPath = await extractPiProjectPath(piDir, piDirName);
+    } else {
+      // Treat project as a direct path
+      actualPath = project;
+    }
+
     const targetPath = dirPath ? path.join(actualPath, dirPath) : actualPath;
 
     // Verify path exists
@@ -441,9 +479,17 @@ router.get('/:project/*', async (req, res) => {
   }
 
   try {
-    // Get the actual project path (resolve from session files like projects.js does)
-    const projectDir = path.join(CLAUDE_PROJECTS, project);
-    const actualPath = await extractProjectPath(projectDir, project);
+    // Get the actual project path from Pi sessions
+    const piDirName = await resolvePiDirName(project);
+    let actualPath;
+
+    if (piDirName) {
+      const piDir = path.join(PI_SESSIONS, piDirName);
+      actualPath = await extractPiProjectPath(piDir, piDirName);
+    } else {
+      // Treat project as a direct path
+      actualPath = project;
+    }
 
     const safePath = await validateFilePath(actualPath, relativePath);
 
@@ -537,9 +583,17 @@ router.put('/:project/*', async (req, res) => {
   }
 
   try {
-    // Get the actual project path (resolve from session files like projects.js does)
-    const projectDir = path.join(CLAUDE_PROJECTS, project);
-    const actualPath = await extractProjectPath(projectDir, project);
+    // Get the actual project path from Pi sessions
+    const piDirName = await resolvePiDirName(project);
+    let actualPath;
+
+    if (piDirName) {
+      const piDir = path.join(PI_SESSIONS, piDirName);
+      actualPath = await extractPiProjectPath(piDir, piDirName);
+    } else {
+      // Treat project as a direct path
+      actualPath = project;
+    }
 
     const safePath = await validateFilePath(actualPath, relativePath);
 

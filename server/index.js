@@ -20,10 +20,11 @@ import { processUpload, validateFile } from './uploads.js';
 import logger from './logger.js';
 import { loadModelsConfig } from './models.js';
 import { subscribe, publish } from './bus.js';
-import { getSessionsForUser } from './session-registry.js';
-import { replayBufferToSSE } from './broadcast.js';
+import { getSessionsForUser, getSession as getRegistrySession, isStreaming as isSessionStreaming, remove as removeSession } from './session-registry.js';
+import { replayBufferToSSE, replayBufferToCallback, hasActiveBuffer } from './broadcast.js';
 import { errorHandler, notFoundHandler } from './errors.js';
 import rpcSessionManager from './session-manager-instance.js';
+import { attachToCliSession, isWatching, stopAll as stopAllWatchers } from './session-watcher.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -120,7 +121,14 @@ const upload = multer({
 });
 
 // Static files (frontend)
-app.use(express.static(path.join(__dirname, '../public')));
+app.use(express.static(path.join(__dirname, '../public'), {
+  etag: false,
+  lastModified: false,
+  maxAge: 0,
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  }
+}));
 
 // API Routes
 app.use('/api/auth', authRoutes);
@@ -170,6 +178,64 @@ app.post('/api/upload', authenticateToken, upload.single('file'), async (req, re
     logger.error('File upload error', { error: err.message, filename: req.file?.originalname });
     res.status(400).json({ error: err.message });
   }
+});
+
+// Session attach — client calls this when navigating to a session
+// to check if it's streaming and get replay data via SSE.
+// Also detects CLI pi sessions by watching the session file.
+app.post('/api/sessions/:sessionId/attach', authenticateToken, async (req, res) => {
+  const { sessionId } = req.params;
+  const username = req.user?.username;
+
+  if (!username) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const registrySession = getRegistrySession(sessionId);
+
+  // ── Case 1: Session is already streaming via RPC or has a buffer ──
+  const streaming = isSessionStreaming(sessionId);
+  const hasBuffer = hasActiveBuffer(sessionId);
+
+  if (streaming || hasBuffer) {
+    const replayed = replayBufferToCallback(sessionId, (event) => {
+      publish(username, event);
+    });
+
+    logger.info('Session attach: streaming (RPC)', { sessionId, username, replayed });
+    return res.json({
+      status: 'streaming',
+      sessionId,
+      replayed,
+      session: registrySession || null,
+    });
+  }
+
+  // ── Case 2: Check if this is a CLI pi session (file actively being written) ──
+  try {
+    const cliResult = await attachToCliSession(sessionId, username);
+
+    if (cliResult.status === 'streaming') {
+      logger.info('Session attach: streaming (CLI file watcher)', { sessionId, username });
+      return res.json({
+        status: 'streaming',
+        sessionId,
+        replayed: 0,
+        external: true, // Tells client this is an external CLI session
+        session: registrySession || null,
+      });
+    }
+  } catch (err) {
+    logger.warn('Session attach: CLI detection failed', { sessionId, error: err.message });
+  }
+
+  // ── Case 3: Idle ──
+  logger.info('Session attach: idle', { sessionId, username });
+  res.json({
+    status: 'idle',
+    sessionId,
+    session: registrySession || null,
+  });
 });
 
 // SSE Event Stream
@@ -315,6 +381,22 @@ wss.on('connection', (ws, req) => {
           break;
         }
 
+        case 'close-session': {
+          if (msg.sessionId) {
+            removeSession(msg.sessionId);
+            // Broadcast to all user's connections so other tabs/devices can update
+            publish(user.username, {
+              type: 'session-closed',
+              sessionId: msg.sessionId
+            });
+            logger.info('Session closed and removed from registry', { 
+              sessionId: msg.sessionId, 
+              username: user.username 
+            });
+          }
+          break;
+        }
+
         case 'ping':
           ws.send(JSON.stringify({ type: 'pong' }));
           break;
@@ -376,6 +458,9 @@ async function gracefulShutdown(signal) {
   if (activeCount > 0) {
     logger.info(`Stopping ${activeCount} active RPC sessions...`);
   }
+
+  // Stop CLI session file watchers
+  stopAllWatchers();
 
   // Destroy all RPC sessions first (lets Pi flush session files)
   // with a 5-second timeout so we don't hang forever

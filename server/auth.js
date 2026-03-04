@@ -9,15 +9,9 @@ import fs from 'fs';
 const router = express.Router();
 
 // Database in ~/.cleon-ui/
-// Migrate from old directory if it exists
-const oldDbDir = path.join(os.homedir(), '.claude-lite');
 const dbDir = path.join(os.homedir(), '.cleon-ui');
 
-if (!fs.existsSync(dbDir) && fs.existsSync(oldDbDir)) {
-  console.log('[Auth] Migrating from .claude-lite to .cleon-ui...');
-  fs.renameSync(oldDbDir, dbDir);
-  console.log('[Auth] Migration complete');
-} else if (!fs.existsSync(dbDir)) {
+if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
 }
 

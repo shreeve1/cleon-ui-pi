@@ -1,5 +1,5 @@
 /**
- * Task Manager for tracking Claude tool executions
+ * Task Manager for tracking Pi tool executions
  * Manages in-memory task state per session with websocket broadcasts
  */
 
