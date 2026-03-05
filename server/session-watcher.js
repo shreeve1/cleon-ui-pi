@@ -30,8 +30,14 @@ const IDLE_CHECK_MS = 30_000; // 30 seconds — then we verify via process detec
 // How often to re-check if the pi process is still running when file is idle
 const PROCESS_CHECK_INTERVAL_MS = 15_000; // 15 seconds
 
+// How often to poll for file changes (fallback for unreliable fs.watch on macOS)
+const POLL_INTERVAL_MS = 2_000; // 2 seconds
+
 // How long after the last assistant message before we consider the turn "done"
 const TURN_COMPLETE_DELAY_MS = 3_000; // 3 seconds
+
+// How many bytes to read from the end of the file to check turn state
+const TURN_STATE_CHECK_BYTES = 200_000; // 200KB - handles very long assistant messages
 
 // Active watchers: sessionId → WatcherState
 const activeWatchers = new Map();
@@ -46,6 +52,7 @@ const activeWatchers = new Map();
  * @property {import('fs').FSWatcher | null} fsWatcher
  * @property {NodeJS.Timeout | null} idleTimer
  * @property {NodeJS.Timeout | null} turnCompleteTimer - timer for sending 'done' after assistant message
+ * @property {NodeJS.Timeout | null} pollTimer - polling interval for file changes (macOS fs.watch fallback)
  * @property {boolean} processing - debounce flag
  * @property {boolean} turnComplete - true if we've sent 'done' for the current turn
  * @property {string | null} lastAssistantMessageId - ID of last assistant message seen
@@ -116,6 +123,70 @@ async function getProjectInfo(filePath) {
 }
 
 /**
+ * Check the last message in a session file to determine turn state.
+ * Reads the last ~200KB of the file and parses JSONL entries to find
+ * the last message and its role/timestamp. Skips partial lines at the
+ * start of the buffer to ensure only complete JSONL entries are parsed.
+ *
+ * @param {string} filePath - Path to the .jsonl session file
+ * @returns {Promise<{lastRole: 'assistant'|'user'|'toolResult'|null, timestamp: Date|null}>}
+ */
+export async function checkLastMessageTurnState(filePath) {
+  try {
+    const stats = await fs.stat(filePath);
+    if (stats.size === 0) {
+      return { lastRole: null, timestamp: null };
+    }
+
+    // Read the last TURN_STATE_CHECK_BYTES of the file
+    const readSize = Math.min(TURN_STATE_CHECK_BYTES, stats.size);
+    const offset = stats.size - readSize;
+
+    const fd = await fs.open(filePath, 'r');
+    try {
+      const buf = Buffer.alloc(readSize);
+      await fd.read(buf, 0, readSize, offset);
+      const text = buf.toString('utf8');
+
+      // Split into lines and parse JSONL entries
+      const lines = text.split('\n').filter(Boolean);
+      
+      // Skip the first line if it's partial (we may have started reading mid-line)
+      // A partial line won't start at the beginning of our buffer
+      const startIndex = offset > 0 ? 1 : 0;
+      const entries = [];
+
+      for (let i = startIndex; i < lines.length; i++) {
+        const line = lines[i];
+        try {
+          const entry = JSON.parse(line);
+          entries.push(entry);
+        } catch {
+          // Skip malformed lines
+        }
+      }
+
+      // Find the last message entry (scan from end)
+      for (let i = entries.length - 1; i >= 0; i--) {
+        const entry = entries[i];
+        if (entry.type === 'message' && entry.message && entry.message.role) {
+          const role = entry.message.role;
+          const timestamp = entry.timestamp ? new Date(entry.timestamp) : null;
+          return { lastRole: role, timestamp };
+        }
+      }
+
+      return { lastRole: null, timestamp: null };
+    } finally {
+      await fd.close();
+    }
+  } catch (err) {
+    console.error(`[SessionWatcher] Error checking turn state for ${filePath}:`, err.message);
+    return { lastRole: null, timestamp: null };
+  }
+}
+
+/**
  * Check if a session file is actively being written to (by a CLI pi process).
  *
  * @param {string} filePath - Path to the .jsonl file
@@ -177,6 +248,21 @@ export async function attachToCliSession(sessionId, username) {
     return { status: 'idle', watching: false };
   }
 
+  // Check the last message in the session file to determine turn state
+  const turnState = await checkLastMessageTurnState(filePath);
+  let initialTurnComplete = false;
+  let initialStatus = 'streaming';
+
+  // If last message is from assistant and timestamp is older than TURN_COMPLETE_DELAY_MS,
+  // the turn is already complete
+  if (turnState.lastRole === 'assistant' && turnState.timestamp) {
+    const timeSinceLastMessage = Date.now() - turnState.timestamp.getTime();
+    if (timeSinceLastMessage >= TURN_COMPLETE_DELAY_MS) {
+      initialTurnComplete = true;
+      initialStatus = 'idle';
+    }
+  }
+
   // Start watching
   console.log(`[SessionWatcher] Starting file watch for CLI session ${sessionId}: ${filePath}`);
 
@@ -189,8 +275,9 @@ export async function attachToCliSession(sessionId, username) {
     fsWatcher: null,
     idleTimer: null,
     turnCompleteTimer: null,
+    pollTimer: null,
     processing: false,
-    turnComplete: true, // Start as complete (no turn in progress yet)
+    turnComplete: initialTurnComplete,
     lastAssistantMessageId: null,
   };
 
@@ -202,19 +289,30 @@ export async function attachToCliSession(sessionId, username) {
     projectPath: projectInfo.path,
     projectName: projectInfo.name,
     displayName: projectInfo.displayName,
-    status: 'streaming',
+    status: initialStatus,
     piSessionFile: filePath,
   });
 
   // Start message buffer for replay
   startSessionBuffer(sessionId);
 
-  // Notify client that session is streaming
-  publish(username, { type: 'session-status', sessionId, status: 'streaming' });
+  // Notify client of session status
+  publish(username, { type: 'session-status', sessionId, status: initialStatus });
 
-  // Start fs.watch
+  // If session is already idle (turn complete), send 'done' event immediately
+  // so the UI is unblocked and shows the send button
+  if (initialStatus === 'idle') {
+    const doneEvent = { type: 'done', sessionId };
+    broadcastToSession(sessionId, doneEvent);
+    publish(username, doneEvent);
+    console.log(`[SessionWatcher] Session ${sessionId} — turn already complete, sent 'done' event`);
+  }
+
+  // Start fs.watch (primary) + polling fallback
+  // fs.watch on macOS can intermittently stop firing 'change' events,
+  // so we also poll the file size every POLL_INTERVAL_MS as a safety net.
   watcher.fsWatcher = watch(filePath, { persistent: false }, (eventType) => {
-    if (eventType === 'change' && !watcher.processing) {
+    if ((eventType === 'change' || eventType === 'rename') && !watcher.processing) {
       watcher.processing = true;
       processNewLines(watcher).finally(() => {
         watcher.processing = false;
@@ -222,6 +320,22 @@ export async function attachToCliSession(sessionId, username) {
       resetIdleTimer(watcher);
     }
   });
+
+  // Polling fallback: check file size periodically
+  // This catches writes that fs.watch misses (common on macOS)
+  watcher.pollTimer = setInterval(async () => {
+    if (watcher.processing) return;
+    try {
+      const stats = await fs.stat(watcher.filePath);
+      if (stats.size > watcher.offset) {
+        watcher.processing = true;
+        await processNewLines(watcher);
+        watcher.processing = false;
+        resetIdleTimer(watcher);
+      }
+    } catch { /* file may have been deleted */ }
+  }, POLL_INTERVAL_MS);
+  if (watcher.pollTimer.unref) watcher.pollTimer.unref();
 
   resetIdleTimer(watcher);
   activeWatchers.set(sessionId, watcher);
@@ -506,6 +620,10 @@ function stopWatcher(sessionId) {
   if (watcher.idleTimer) {
     clearTimeout(watcher.idleTimer);
     watcher.idleTimer = null;
+  }
+  if (watcher.pollTimer) {
+    clearInterval(watcher.pollTimer);
+    watcher.pollTimer = null;
   }
   if (watcher.turnCompleteTimer) {
     clearTimeout(watcher.turnCompleteTimer);

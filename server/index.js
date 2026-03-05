@@ -20,11 +20,11 @@ import { processUpload, validateFile } from './uploads.js';
 import logger from './logger.js';
 import { loadModelsConfig } from './models.js';
 import { subscribe, publish } from './bus.js';
-import { getSessionsForUser, getSession as getRegistrySession, isStreaming as isSessionStreaming, remove as removeSession } from './session-registry.js';
+import { getSessionsForUser, getSession as getRegistrySession, isStreaming as isSessionStreaming, remove as removeSession, setStatus } from './session-registry.js';
 import { replayBufferToSSE, replayBufferToCallback, hasActiveBuffer } from './broadcast.js';
 import { errorHandler, notFoundHandler } from './errors.js';
 import rpcSessionManager from './session-manager-instance.js';
-import { attachToCliSession, isWatching, stopAll as stopAllWatchers } from './session-watcher.js';
+import { attachToCliSession, isWatching, stopAll as stopAllWatchers, checkLastMessageTurnState } from './session-watcher.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -193,6 +193,47 @@ app.post('/api/sessions/:sessionId/attach', authenticateToken, async (req, res) 
 
   const registrySession = getRegistrySession(sessionId);
 
+  // ── Pre-check: Detect stale 'streaming' status by checking session file ──
+  // If registry says 'streaming' but the session file shows the turn is complete,
+  // update the registry to 'idle' so the UI is unblocked.
+  if (registrySession?.status === 'streaming') {
+    const sessionFile = registrySession.piSessionFile || rpcSessionManager.getSessionFile(sessionId);
+    
+    if (sessionFile) {
+      const turnState = await checkLastMessageTurnState(sessionFile);
+      
+      // If last message is from assistant and timestamp is older than 3 seconds,
+      // the turn is complete but registry has stale status
+      if (turnState.lastRole === 'assistant' && turnState.timestamp) {
+        const timeSinceLastMessage = Date.now() - turnState.timestamp.getTime();
+        if (timeSinceLastMessage >= 3000) { // 3 seconds
+          // Update registry status to idle
+          setStatus(sessionId, 'idle');
+          // Publish status change event
+          publish(username, { type: 'session-status', sessionId, status: 'idle' });
+          // Send done event to unblock UI
+          publish(username, { type: 'done', sessionId });
+          
+          logger.info('Session attach: detected stale streaming status, updated to idle', { 
+            sessionId, 
+            username, 
+            timeSinceLastMessage 
+          });
+          
+          // Re-fetch the updated session
+          const updatedSession = getRegistrySession(sessionId);
+          return res.json({
+            status: 'idle',
+            sessionId,
+            replayed: 0,
+            external: false,
+            session: updatedSession || null,
+          });
+        }
+      }
+    }
+  }
+
   // ── Case 1: Session is already streaming via RPC or has a buffer ──
   const streaming = isSessionStreaming(sessionId);
   const hasBuffer = hasActiveBuffer(sessionId);
@@ -202,11 +243,16 @@ app.post('/api/sessions/:sessionId/attach', authenticateToken, async (req, res) 
       publish(username, event);
     });
 
-    logger.info('Session attach: streaming (RPC)', { sessionId, username, replayed });
+    // Use actual registry status (may be 'idle' if turn completed) and check if CLI session
+    const actualStatus = registrySession?.status || 'streaming';
+    const isCliSession = isWatching(sessionId);
+
+    logger.info('Session attach: streaming (RPC)', { sessionId, username, replayed, actualStatus, isCliSession });
     return res.json({
-      status: 'streaming',
+      status: actualStatus,
       sessionId,
       replayed,
+      external: isCliSession, // True if CLI file watcher is active
       session: registrySession || null,
     });
   }
@@ -274,13 +320,15 @@ app.get('/api/events', (req, res) => {
     }
   });
 
+  // Send heartbeats every 10s to keep reverse proxy connections alive
+  // (Nginx Proxy Manager and similar proxies close idle SSE connections)
   const heartbeat = setInterval(() => {
     try {
       res.write(`data: ${JSON.stringify({ type: 'heartbeat' })}\n\n`);
     } catch (err) {
       clearInterval(heartbeat);
     }
-  }, 30000);
+  }, 10000);
 
   req.on('close', () => {
     logger.info('SSE disconnected', { username: user.username });
