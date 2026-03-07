@@ -16,7 +16,7 @@ import os from 'os';
 import { publish } from './bus.js';
 import { startSessionBuffer, broadcastToSession, clearSessionBuffer, hasActiveBuffer } from './broadcast.js';
 import { register, setStatus, getSession } from './session-registry.js';
-import { getRpcSessionManager } from './session-manager-instance.js';
+import { getSdkSessionManager } from './session-manager-instance.js';
 
 const PI_SESSIONS = path.join(os.homedir(), '.pi', 'agent', 'sessions');
 
@@ -129,13 +129,13 @@ async function getProjectInfo(filePath) {
  * start of the buffer to ensure only complete JSONL entries are parsed.
  *
  * @param {string} filePath - Path to the .jsonl session file
- * @returns {Promise<{lastRole: 'assistant'|'user'|'toolResult'|null, timestamp: Date|null}>}
+ * @returns {Promise<{lastRole: 'assistant'|'user'|'toolResult'|null, timestamp: Date|null, stopReason: string|null}>}
  */
 export async function checkLastMessageTurnState(filePath) {
   try {
     const stats = await fs.stat(filePath);
     if (stats.size === 0) {
-      return { lastRole: null, timestamp: null };
+      return { lastRole: null, timestamp: null, stopReason: null };
     }
 
     // Read the last TURN_STATE_CHECK_BYTES of the file
@@ -172,17 +172,18 @@ export async function checkLastMessageTurnState(filePath) {
         if (entry.type === 'message' && entry.message && entry.message.role) {
           const role = entry.message.role;
           const timestamp = entry.timestamp ? new Date(entry.timestamp) : null;
-          return { lastRole: role, timestamp };
+          const stopReason = entry.message.stopReason || null;
+          return { lastRole: role, timestamp, stopReason };
         }
       }
 
-      return { lastRole: null, timestamp: null };
+      return { lastRole: null, timestamp: null, stopReason: null };
     } finally {
       await fd.close();
     }
   } catch (err) {
     console.error(`[SessionWatcher] Error checking turn state for ${filePath}:`, err.message);
-    return { lastRole: null, timestamp: null };
+    return { lastRole: null, timestamp: null, stopReason: null };
   }
 }
 
@@ -203,16 +204,16 @@ async function isFileActive(filePath) {
 }
 
 /**
- * Check if a session is already owned by the Cleon UI RPC session manager.
- * If so, we should NOT watch the file — events are already flowing through RPC.
+ * Check if a session is already owned by the Cleon UI SDK session manager.
+ * If so, we should NOT watch the file — events are already flowing through the SDK.
  *
  * @param {string} sessionId
  * @returns {boolean}
  */
-function isOwnedByRpc(sessionId) {
-  const manager = getRpcSessionManager();
+function isOwnedBySdk(sessionId) {
+  const manager = getSdkSessionManager();
   const live = manager.get(sessionId);
-  return !!(live && live.rpc && live.rpc.alive);
+  return !!(live && live.session);
 }
 
 /**
@@ -228,12 +229,12 @@ export async function attachToCliSession(sessionId, username) {
   if (activeWatchers.has(sessionId)) {
     const w = activeWatchers.get(sessionId);
     resetIdleTimer(w);
-    return { status: 'streaming', watching: true };
+    return { status: w.turnComplete ? 'idle' : 'streaming', watching: true };
   }
 
-  // Owned by RPC? Let the normal flow handle it.
-  if (isOwnedByRpc(sessionId)) {
-    return { status: 'rpc-owned', watching: false };
+  // Owned by SDK? Let the normal flow handle it.
+  if (isOwnedBySdk(sessionId)) {
+    return { status: 'sdk-owned', watching: false };
   }
 
   // Resolve file
@@ -340,13 +341,22 @@ export async function attachToCliSession(sessionId, username) {
   resetIdleTimer(watcher);
   activeWatchers.set(sessionId, watcher);
 
-  return { status: 'streaming', watching: true };
+  return { status: initialStatus, watching: true };
 }
 
 /**
  * Read new bytes appended to the session file and emit events.
  */
 async function processNewLines(watcher) {
+  // If the SDK has taken over this session (user sent a message via web UI),
+  // stop the file watcher immediately to prevent duplicate events.
+  // The SDK emits its own events through the broadcast system.
+  if (isOwnedBySdk(watcher.sessionId)) {
+    console.log(`[SessionWatcher] Session ${watcher.sessionId} — SDK took over, stopping file watcher`);
+    stopWatcher(watcher.sessionId);
+    return;
+  }
+
   try {
     const stats = await fs.stat(watcher.filePath);
     if (stats.size <= watcher.offset) return;
@@ -496,17 +506,6 @@ function isPiProcessRunning(projectPath) {
 
     for (const pid of pids) {
       try {
-        // Get the full command line to filter out RPC and interactive sessions
-        // RPC mode runs with '--mode rpc' - we only want CLI sessions
-        const cmdline = execSync(`cat /proc/${pid}/cmdline 2>/dev/null || ps -p ${pid} -o args= 2>/dev/null`, {
-          encoding: 'utf8', timeout: 1000
-        }).trim();
-
-        // Skip RPC mode processes (they have their own completion handling)
-        if (cmdline.includes('--mode rpc') || cmdline.includes('-m rpc')) {
-          continue;
-        }
-
         // lsof -p <pid> returns all FDs for that specific process.
         // Filter for cwd type and extract the path.
         // Output format: "p<pid>\nfcwd\nn<path>\n..."

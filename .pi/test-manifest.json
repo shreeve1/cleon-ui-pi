@@ -1,0 +1,153 @@
+{
+  "version": "1.0",
+  "createdAt": "2026-03-04T19:20:00-08:00",
+  "updatedAt": "2026-03-04T19:20:00-08:00",
+  "project": {
+    "type": "nodejs",
+    "framework": "express",
+    "rootDirectory": "/Users/james/1-testytech/cleonui-v2"
+  },
+  "testFramework": {
+    "runner": "vitest",
+    "configFile": null,
+    "version": "4.0.18"
+  },
+  "testDirectories": [
+    "tests/unit",
+    "tests/integration",
+    "tests/e2e"
+  ],
+  "testFiles": [
+    {
+      "path": "tests/unit/context-window-session-persistence.test.js",
+      "type": "unit",
+      "sourceFile": "server/session-watcher.js"
+    },
+    {
+      "path": "tests/unit/context-window-updateTokenUsage.test.js",
+      "type": "unit",
+      "sourceFile": "server/session-watcher.js"
+    },
+    {
+      "path": "tests/unit/mobile-ux-frontend.test.js",
+      "type": "unit",
+      "sourceFile": "public/app.js"
+    },
+    {
+      "path": "tests/unit/claude-reconnect.test.js",
+      "type": "unit",
+      "sourceFile": "server/pi-agent.js"
+    },
+    {
+      "path": "tests/unit/mobile-ux-server.test.js",
+      "type": "unit",
+      "sourceFile": "server/index.js"
+    },
+    {
+      "path": "tests/unit/session-close-removes-from-registry.test.js",
+      "type": "unit",
+      "sourceFile": "server/session-registry.js"
+    },
+    {
+      "path": "tests/unit/pi-agent-rpc.test.js",
+      "type": "unit",
+      "sourceFile": "server/pi-agent.js"
+    },
+    {
+      "path": "tests/unit/context-window-extractTokenUsage.test.js",
+      "type": "unit",
+      "sourceFile": "server/session-watcher.js"
+    },
+    {
+      "path": "tests/unit/code-analysis.test.js",
+      "type": "unit",
+      "sourceFile": "server/commands.js"
+    },
+    {
+      "path": "tests/unit/session-tab-reuse.test.js",
+      "type": "unit",
+      "sourceFile": "public/app.js"
+    },
+    {
+      "path": "tests/unit/cli-session-streaming.test.js",
+      "type": "unit",
+      "sourceFile": "server/index.js"
+    },
+    {
+      "path": "tests/unit/tool-pill-output.test.js",
+      "type": "unit",
+      "sourceFile": "public/app.js"
+    },
+    {
+      "path": "tests/unit/sse-task-updates.test.js",
+      "type": "unit",
+      "sourceFile": "server/index.js"
+    },
+    {
+      "path": "tests/unit/pi-agent-transform.test.js",
+      "type": "unit",
+      "sourceFile": "server/pi-agent.js"
+    },
+    {
+      "path": "tests/integration/attach-endpoint-streaming.test.js",
+      "type": "integration",
+      "sourceFile": "server/index.js"
+    },
+    {
+      "path": "tests/integration/mobile-ux-flow.test.js",
+      "type": "integration",
+      "sourceFile": "public/app.js"
+    },
+    {
+      "path": "tests/integration/ws-reconnect-flow.test.js",
+      "type": "integration",
+      "sourceFile": "server/index.js"
+    },
+    {
+      "path": "tests/integration/context-window-integration.test.js",
+      "type": "integration",
+      "sourceFile": "server/session-watcher.js"
+    },
+    {
+      "path": "tests/integration/sse-task-updates-claude.test.js",
+      "type": "integration",
+      "sourceFile": "server/pi-agent.js"
+    },
+    {
+      "path": "tests/e2e/context-window-e2e.test.js",
+      "type": "e2e",
+      "sourceFile": null
+    },
+    {
+      "path": "tests/e2e/mobile-ux-e2e.test.js",
+      "type": "e2e",
+      "sourceFile": null
+    },
+    {
+      "path": "tests/e2e/cli-session-state.test.js",
+      "type": "e2e",
+      "sourceFile": null
+    }
+  ],
+  "coverage": {
+    "lastRun": "2026-03-04T19:20:00-08:00",
+    "percentage": 0,
+    "lines": { "covered": 0, "total": 0 }
+  },
+  "lastRunResults": {
+    "testFiles": {
+      "total": 22,
+      "passed": 17,
+      "failed": 5
+    },
+    "failedFiles": [
+      "tests/unit/session-close-removes-from-registry.test.js",
+      "tests/integration/mobile-ux-flow.test.js",
+      "tests/integration/ws-reconnect-flow.test.js",
+      "tests/unit/mobile-ux-frontend.test.js",
+      "tests/unit/session-tab-reuse.test.js"
+    ]
+  },
+  "runCommand": "npm test",
+  "coverageCommand": "npm test -- --coverage"
+}

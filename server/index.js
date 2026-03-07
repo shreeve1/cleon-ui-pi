@@ -14,7 +14,7 @@ import rateLimit from 'express-rate-limit';
 import { authRoutes, authenticateToken, authenticateWebSocket } from './auth.js';
 import { projectRoutes } from './projects.js';
 import { fileRoutes } from './files.js';
-import { handleChat, handleAbort, handleQuestionResponse, handlePlanResponse } from './pi-agent.js';
+import { handleChat, handleAbort, handleQuestionResponse, handlePlanResponse, isSessionActive } from './pi-agent.js';
 import { getAllCommands } from './commands.js';
 import { processUpload, validateFile } from './uploads.js';
 import logger from './logger.js';
@@ -23,7 +23,7 @@ import { subscribe, publish } from './bus.js';
 import { getSessionsForUser, getSession as getRegistrySession, isStreaming as isSessionStreaming, remove as removeSession, setStatus } from './session-registry.js';
 import { replayBufferToSSE, replayBufferToCallback, hasActiveBuffer } from './broadcast.js';
 import { errorHandler, notFoundHandler } from './errors.js';
-import rpcSessionManager from './session-manager-instance.js';
+import sdkSessionManager from './session-manager-instance.js';
 import { attachToCliSession, isWatching, stopAll as stopAllWatchers, checkLastMessageTurnState } from './session-watcher.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -136,8 +136,14 @@ app.use('/api/projects', authenticateToken, projectRoutes);
 app.use('/api/files', authenticateToken, fileRoutes);
 
 // Health check
+const serverStartTime = Date.now();
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  const uptime = Math.floor((Date.now() - serverStartTime) / 1000);
+  res.json({
+    status: 'ok',
+    uptime,
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Commands API - get global and project slash commands
@@ -196,15 +202,21 @@ app.post('/api/sessions/:sessionId/attach', authenticateToken, async (req, res) 
   // ── Pre-check: Detect stale 'streaming' status by checking session file ──
   // If registry says 'streaming' but the session file shows the turn is complete,
   // update the registry to 'idle' so the UI is unblocked.
-  if (registrySession?.status === 'streaming') {
-    const sessionFile = registrySession.piSessionFile || rpcSessionManager.getSessionFile(sessionId);
+  // Skip this check if the session is actively running (e.g. waiting for ask_user input).
+  if (registrySession?.status === 'streaming' && !isSessionActive(sessionId)) {
+    const sessionFile = registrySession.piSessionFile || sdkSessionManager.getSessionFile(sessionId);
     
     if (sessionFile) {
       const turnState = await checkLastMessageTurnState(sessionFile);
       
-      // If last message is from assistant and timestamp is older than 3 seconds,
-      // the turn is complete but registry has stale status
-      if (turnState.lastRole === 'assistant' && turnState.timestamp) {
+      // If last message is from assistant, timestamp is older than 3 seconds,
+      // AND the turn ended normally (not mid-tool-call), treat as stale.
+      // stopReason 'toolUse' means the agent is waiting for a tool result — not done!
+      const isCompletedTurn = turnState.lastRole === 'assistant' 
+        && turnState.stopReason !== 'toolUse'
+        && turnState.stopReason !== null;
+
+      if (isCompletedTurn && turnState.timestamp) {
         const timeSinceLastMessage = Date.now() - turnState.timestamp.getTime();
         if (timeSinceLastMessage >= 3000) { // 3 seconds
           // Update registry status to idle
@@ -261,10 +273,10 @@ app.post('/api/sessions/:sessionId/attach', authenticateToken, async (req, res) 
   try {
     const cliResult = await attachToCliSession(sessionId, username);
 
-    if (cliResult.status === 'streaming') {
-      logger.info('Session attach: streaming (CLI file watcher)', { sessionId, username });
+    if (cliResult.watching) {
+      logger.info(`Session attach: ${cliResult.status} (CLI file watcher)`, { sessionId, username });
       return res.json({
-        status: 'streaming',
+        status: cliResult.status,
         sessionId,
         replayed: 0,
         external: true, // Tells client this is an external CLI session
@@ -502,26 +514,26 @@ server.listen(PORT, HOST, () => {
 async function gracefulShutdown(signal) {
   logger.info(`${signal} received, shutting down...`);
 
-  const activeCount = rpcSessionManager.size;
+  const activeCount = sdkSessionManager.size;
   if (activeCount > 0) {
-    logger.info(`Stopping ${activeCount} active RPC sessions...`);
+    logger.info(`Stopping ${activeCount} active SDK sessions...`);
   }
 
   // Stop CLI session file watchers
   stopAllWatchers();
 
-  // Destroy all RPC sessions first (lets Pi flush session files)
+  // Destroy all SDK sessions first (lets Pi flush session files)
   // with a 5-second timeout so we don't hang forever
   try {
     await Promise.race([
-      rpcSessionManager.destroyAll(),
+      sdkSessionManager.destroyAll(),
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('RPC shutdown timed out')), 5000)
+        setTimeout(() => reject(new Error('SDK shutdown timed out')), 5000)
       ),
     ]);
-    logger.info('All RPC sessions stopped');
+    logger.info('All SDK sessions stopped');
   } catch (err) {
-    logger.warn('RPC shutdown did not complete cleanly', { error: err.message });
+    logger.warn('SDK shutdown did not complete cleanly', { error: err.message });
   }
 
   server.close(() => {

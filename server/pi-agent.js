@@ -1,4 +1,3 @@
-import { spawn } from 'child_process';
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import path from 'path';
@@ -8,254 +7,17 @@ import { broadcastToSession, startSessionBuffer } from './broadcast.js';
 import { publish } from './bus.js';
 import { createActivityTracker } from './activity.js';
 import { register, setStatus } from './session-registry.js';
-import { getRpcSessionManager } from './session-manager-instance.js';
+import { getSdkSessionManager } from './session-manager-instance.js';
+import { createExtensionUIBridge } from './extension-ui-bridge.js';
 
 // Constants
 const TOOL_OUTPUT_TRUNCATE_LENGTH = 1500;
 const TOOL_SUMMARY_TRUNCATE_LENGTH = 200;
-const RPC_COMMAND_TIMEOUT_MS = 60_000;
-const PI_BINARY = process.env.PI_BINARY || 'pi';
-
-// ─── RpcClient ──────────────────────────────────────────────────────
-
-class RpcClient {
-  #process = null;
-  #requestId = 0;
-  #pendingResponses = new Map(); // id -> { resolve, reject, timer }
-  #eventListeners = new Set();
-  #lineBuffer = '';
-  #cwd = null;
-  #sessionFile = null;
-  #extraArgs = [];
-  #alive = false;
-
-  constructor(cwd, options = {}) {
-    this.#cwd = cwd;
-    this.#sessionFile = options.sessionFile || null;
-    this.#extraArgs = options.extraArgs || [];
-  }
-
-  async start() {
-    if (this.#alive) return;
-
-    const args = ['--mode', 'rpc'];
-    if (this.#sessionFile) {
-      args.push('--session', this.#sessionFile);
-    }
-    args.push(...this.#extraArgs);
-    this.#process = spawn(PI_BINARY, args, {
-      cwd: this.#cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env },
-    });
-
-    this.#alive = true;
-
-    this.#process.stdout.on('data', (chunk) => {
-      this.#lineBuffer += chunk.toString();
-      this.#drainLines();
-    });
-
-    this.#process.stderr.on('data', (chunk) => {
-      const text = chunk.toString().trimEnd();
-      if (text) console.log(`[Pi:stderr] ${text}`);
-    });
-
-    this.#process.on('exit', (code, signal) => {
-      this.#alive = false;
-      console.log(`[Pi] Process exited code=${code} signal=${signal}`);
-      // Reject all pending responses
-      for (const [id, pending] of this.#pendingResponses) {
-        clearTimeout(pending.timer);
-        pending.reject(new Error(`Pi process exited (code=${code})`));
-      }
-      this.#pendingResponses.clear();
-      // Notify listeners of exit
-      this.#emit({ type: '_process_exit', code, signal });
-    });
-
-    this.#process.on('error', (err) => {
-      this.#alive = false;
-      console.error('[Pi] Process error:', err.message);
-      this.#emit({ type: '_process_error', error: err.message });
-    });
-
-    // Pi RPC mode does NOT emit a 'ready' event like OMP did.
-    // Wait briefly then verify process is still alive.
-    await new Promise((resolve, reject) => {
-      const checkAlive = setTimeout(() => {
-        if (this.#process && this.#process.exitCode === null) {
-          resolve();
-        } else {
-          reject(new Error(`Pi RPC process exited immediately (exitCode=${this.#process?.exitCode})`));
-        }
-      }, 500);
-
-      this.#process.on('error', (err) => {
-        clearTimeout(checkAlive);
-        reject(new Error(`Pi RPC process failed to start: ${err.message}`));
-      });
-
-      this.#process.once('exit', (code) => {
-        clearTimeout(checkAlive);
-        reject(new Error(`Pi RPC process exited during startup (code=${code})`));
-      });
-    });
-  }
-
-  async stop() {
-    if (!this.#alive) return;
-    this.#alive = false;
-
-    // Close stdin to signal the RPC process to exit
-    try {
-      this.#process.stdin.end();
-    } catch { /* ignore */ }
-
-    // Give it a moment to exit gracefully
-    await new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        try { this.#process.kill('SIGTERM'); } catch { /* ignore */ }
-        resolve();
-      }, 3000);
-
-      this.#process.once('exit', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-    });
-
-    this.#process = null;
-  }
-
-  get alive() {
-    return this.#alive;
-  }
-
-  /**
-   * Send a command and wait for its correlated response.
-   */
-  async sendCommand(cmd) {
-    if (!this.#alive) throw new Error('Pi RPC process not running');
-
-    const id = `req_${++this.#requestId}`;
-    const frame = { id, ...cmd };
-    const line = JSON.stringify(frame) + '\n';
-
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.#pendingResponses.delete(id);
-        reject(new Error(`Pi command timed out after ${RPC_COMMAND_TIMEOUT_MS}ms: ${cmd.type}`));
-      }, RPC_COMMAND_TIMEOUT_MS);
-
-      this.#pendingResponses.set(id, { resolve, reject, timer });
-
-      try {
-        this.#process.stdin.write(line);
-      } catch (err) {
-        clearTimeout(timer);
-        this.#pendingResponses.delete(id);
-        reject(new Error(`Failed to write to Pi stdin: ${err.message}`));
-      }
-    });
-  }
-
-  /**
-   * Send a prompt command (returns immediately after ack; results come via events).
-   */
-  async prompt(message, options = {}) {
-    const cmd = { type: 'prompt', message, ...options };
-    return this.sendCommand(cmd);
-  }
-
-  /**
-   * Query Pi's current state (model, session info, etc.).
-   * Returns the full get_state response including sessionFile and sessionId.
-   */
-  async getState() {
-    return this.sendCommand({ type: 'get_state' });
-  }
-
-  /**
-   * Send an abort command.
-   */
-  async abort() {
-    return this.sendCommand({ type: 'abort' });
-  }
-
-  /**
-   * Send an extension UI response.
-   */
-  sendExtensionUIResponse(id, payload) {
-    if (!this.#alive) return;
-    const frame = { type: 'extension_ui_response', id, ...payload };
-    const line = JSON.stringify(frame) + '\n';
-    try {
-      this.#process.stdin.write(line);
-    } catch (err) {
-      console.error('[Pi] Failed to send extension_ui_response:', err.message);
-    }
-  }
-
-  /**
-   * Subscribe to events. Returns unsubscribe function.
-   */
-  onEvent(callback) {
-    this.#eventListeners.add(callback);
-    return () => this.#eventListeners.delete(callback);
-  }
-
-  // ─── Internal ───
-
-  #drainLines() {
-    let newlineIdx;
-    while ((newlineIdx = this.#lineBuffer.indexOf('\n')) !== -1) {
-      const line = this.#lineBuffer.slice(0, newlineIdx).trim();
-      this.#lineBuffer = this.#lineBuffer.slice(newlineIdx + 1);
-      if (!line) continue;
-
-      let parsed;
-      try {
-        parsed = JSON.parse(line);
-      } catch (err) {
-        console.error('[Pi] Failed to parse JSONL:', line.slice(0, 200));
-        continue;
-      }
-
-      // Route: command response vs event
-      if (parsed.type === 'response' && parsed.id) {
-        const pending = this.#pendingResponses.get(parsed.id);
-        if (pending) {
-          clearTimeout(pending.timer);
-          this.#pendingResponses.delete(parsed.id);
-          if (parsed.success) {
-            pending.resolve(parsed);
-          } else {
-            pending.reject(new Error(parsed.error || 'RPC command failed'));
-          }
-        }
-      }
-
-      // Always emit to event listeners (including responses, for transparency)
-      this.#emit(parsed);
-    }
-  }
-
-  #emit(event) {
-    for (const listener of this.#eventListeners) {
-      try {
-        listener(event);
-      } catch (err) {
-        console.error('[Pi] Event listener error:', err.message);
-      }
-    }
-  }
-}
 
 // ─── Active sessions ────────────────────────────────────────────────
 
 // Map<sessionId, SessionInfo>
-// SessionInfo: { rpc: RpcClient, ws, username, activityTracker, pendingExtensionUI: Map }
+// SessionInfo: { session: AgentSession, ws, username, activityTracker, bridge }
 const activeSessions = new Map();
 
 // Tool timing
@@ -363,9 +125,12 @@ function getToolSummary(tool, input) {
 // ─── Pi Event → Cleon UI Message Transformation ────────────────────
 
 /**
- * Transform a Pi RPC event into a Cleon UI message (or null to skip).
+ * Transform a Pi SDK event into a Cleon UI message (or null to skip).
  * Returns { type, ...data } matching what the frontend expects inside
  * a `message` wrapper.
+ *
+ * SDK events are identical to RPC events (same AgentSessionEvent types),
+ * so this function is unchanged from the RPC implementation.
  */
 function transformEvent(event, sessionId, sessionInfo) {
   const timestamp = generateTimestamp();
@@ -392,7 +157,6 @@ function transformEvent(event, sessionId, sessionInfo) {
 
     // ── Tool execution ──
     case 'tool_execution_start': {
-      // Pi uses consistent field names (no fallbacks needed like OMP)
       const toolName = event.toolName || 'unknown';
       const toolUseId = event.toolCallId || randomUUID();
       const input = event.args || {};
@@ -428,9 +192,6 @@ function transformEvent(event, sessionId, sessionInfo) {
       }
 
       const summary = getToolSummary(toolName, input);
-      if (typeof summary === 'string') {
-        // Normalize to object
-      }
 
       return {
         type: 'tool_use',
@@ -445,7 +206,6 @@ function transformEvent(event, sessionId, sessionInfo) {
     }
 
     case 'tool_execution_end': {
-      // Pi uses consistent field names
       const toolUseId = event.toolCallId || '';
       const isError = event.isError === true;
       // Extract output text from Pi's result structure
@@ -506,74 +266,15 @@ function transformEvent(event, sessionId, sessionInfo) {
       };
     }
 
-    // ── Extension UI (questions, confirms) ──
-    case 'extension_ui_request': {
-      const method = event.method;
-      const uiId = event.id;
-
-      if (method === 'select') {
-        // Pi sends options as string arrays (simplified from OMP)
-        const options = (event.options || []).map(opt => {
-          if (typeof opt === 'string') return { label: opt };
-          return { label: String(opt) };
-        });
-        return {
-          type: 'question',
-          id: uiId,
-          questions: [{
-            question: event.title || event.message || 'Select an option',
-            header: event.title || '',
-            options,
-            multiSelect: event.multiple || false,
-          }],
-        };
-      }
-
-      if (method === 'confirm') {
-        return {
-          type: 'question',
-          id: uiId,
-          questions: [{
-            question: event.message || event.title || 'Confirm?',
-            header: event.title || '',
-            options: [
-              { label: 'Yes', description: 'Confirm' },
-              { label: 'No', description: 'Cancel' },
-            ],
-            multiSelect: false,
-          }],
-        };
-      }
-
-      if (method === 'input') {
-        return {
-          type: 'question',
-          id: uiId,
-          questions: [{
-            question: event.title || event.message || 'Enter a value',
-            header: event.title || '',
-            options: [],
-            multiSelect: false,
-            freeText: true,
-            placeholder: event.placeholder || '',
-          }],
-        };
-      }
-
-      // Other methods (notify, setStatus, etc.) are fire-and-forget; ignore
-      return null;
-    }
-
     // ── Session lifecycle ──
     case 'agent_start': {
       if (sessionInfo?.activityTracker) {
         sessionInfo.activityTracker.startThinking();
       }
-      return null; // No direct frontend message; streaming state managed elsewhere
+      return null;
     }
 
     case 'agent_end': {
-      // Signals completion — handled by the main loop as 'done'
       return { type: '_agent_end' };
     }
 
@@ -585,7 +286,6 @@ function transformEvent(event, sessionId, sessionInfo) {
     }
 
     case 'turn_end': {
-      // Extract token usage from message.usage
       const msgUsage = event.message?.usage;
       if (msgUsage) {
         const model = event.message?.model || null;
@@ -624,16 +324,13 @@ function transformEvent(event, sessionId, sessionInfo) {
       };
     }
 
-    // ── Pi-specific events (not in OMP) ──
+    // ── Partial tool output (skip — no frontend support) ──
     case 'tool_execution_update': {
-      // Pi streams partial tool output during long-running tools
-      // For now, skip (no frontend support for live tool output)
       return null;
     }
 
     case 'message_start':
     case 'message_end': {
-      // Pi message lifecycle events — no direct frontend mapping needed
       return null;
     }
 
@@ -679,22 +376,10 @@ function transformEvent(event, sessionId, sessionInfo) {
       return null;
     }
 
-    // ── Process lifecycle (internal) ──
-    case '_process_exit':
-    case '_process_error':
-    case 'ready':
-    case 'response':
-      return null;
-
     default:
-      // Unknown event types — skip
       return null;
   }
 }
-
-/**
- * Extract token usage from an event or its nested fields.
- */
 
 // ─── Exported API ───────────────────────────────────────────────────
 
@@ -704,9 +389,10 @@ function transformEvent(event, sessionId, sessionInfo) {
 export async function handleChat(msg, ws, username) {
   const { content, projectPath, sessionId, isNewSession, attachments } = msg;
   const projectDisplayName = projectPath ? projectPath.split('/').pop() : '';
+  const piProjectName = projectPath ? ('--' + projectPath.slice(1).replace(/\//g, '-') + '--') : projectDisplayName;
 
-  // Build prompt — just the user's message, no history prepending
-  // (Pi maintains native context in the persistent RPC session)
+  // Build prompt — just the user's message
+  // (Pi maintains native context in the persistent SDK session)
   let prompt = content || '';
 
   // Handle attachments
@@ -740,14 +426,13 @@ export async function handleChat(msg, ws, username) {
     }
   }
 
-  // Session info for tracking
   const currentSessionId = sessionId || randomUUID();
   const sessionInfo = {
-    rpc: null,
+    session: null,
     ws,
     username,
     activityTracker: null,
-    pendingExtensionUI: new Map(),
+    bridge: null,
   };
 
   let unsubscribeEvents = null;
@@ -756,10 +441,30 @@ export async function handleChat(msg, ws, username) {
     console.log(`[Pi] Chat - project: ${projectPath}, session: ${currentSessionId}`);
     console.log(`[Pi] Prompt length: ${prompt.length} chars`);
 
-    // Get or create persistent RPC session
-    const manager = getRpcSessionManager();
-    const { rpc, sessionFile, isNew } = await manager.getOrCreate(currentSessionId, projectPath, username);
-    sessionInfo.rpc = rpc;
+    // Get or create persistent SDK session
+    const manager = getSdkSessionManager();
+    const { session, sessionFile, isNew } = await manager.getOrCreate(currentSessionId, projectPath, username);
+    sessionInfo.session = session;
+
+    // Create extension UI bridge for this turn
+    // Wrap sendMessage so the bridge can call sendBridgeMessage(data) without needing ws
+    const sendBridgeMessage = (data) => sendMessage(ws, data, username);
+    const bridge = createExtensionUIBridge(currentSessionId, sendBridgeMessage, username);
+    sessionInfo.bridge = bridge;
+
+    // Bind extensions once per session; on subsequent turns just swap the uiContext
+    const alreadyBound = !!session._extensionUIContext;
+    console.log(`[Pi] Session ${currentSessionId} — extensions already bound: ${alreadyBound}`);
+    if (!alreadyBound) {
+      await session.bindExtensions({
+        uiContext: bridge.uiContext,
+        commandContextActions: {},
+        onError: (err) => console.error('[Pi] Extension error', { sessionId: currentSessionId, error: err.message }),
+      });
+    } else {
+      // Lightweight per-turn update — just swaps the uiContext reference
+      session._extensionRunner?.setUIContext(bridge.uiContext);
+    }
 
     // Register session in active sessions map and session registry
     activeSessions.set(currentSessionId, sessionInfo);
@@ -767,7 +472,7 @@ export async function handleChat(msg, ws, username) {
     register(currentSessionId, {
       username,
       projectPath,
-      projectName: projectDisplayName,
+      projectName: piProjectName,
       displayName: projectDisplayName,
       status: 'streaming',
       piSessionFile: sessionFile,
@@ -777,8 +482,7 @@ export async function handleChat(msg, ws, username) {
 
     // If this is a "new" session and client didn't have a sessionId yet, tell them
     if (!sessionId) {
-      // Broadcast to all user's connections (including other tabs/devices)
-      publish(username, { type: 'session-created', sessionId: currentSessionId, project: { name: projectDisplayName, path: projectPath } });
+      publish(username, { type: 'session-created', sessionId: currentSessionId, project: { name: piProjectName, path: projectPath, displayName: projectDisplayName } });
     }
 
     // Set the requested model before prompting
@@ -787,11 +491,14 @@ export async function handleChat(msg, ws, username) {
       const provider = msg.model.slice(0, slashIdx);
       const modelId = msg.model.slice(slashIdx + 1);
       try {
-        const modelResp = await rpc.sendCommand({ type: 'set_model', provider, modelId });
-        if (modelResp && modelResp.success) {
+        // Use the model registry to resolve and set the model
+        const modelRegistry = session.modelRegistry;
+        const model = modelRegistry.getModel(provider, modelId);
+        if (model) {
+          await session.setModel(model);
           console.log(`[Pi] Model set to ${msg.model}`);
         } else {
-          console.warn(`[Pi] set_model failed for ${msg.model}:`, modelResp);
+          console.warn(`[Pi] Model ${msg.model} not found in registry`);
         }
       } catch (err) {
         console.error(`[Pi] Failed to set model ${msg.model}:`, err.message);
@@ -800,57 +507,38 @@ export async function handleChat(msg, ws, username) {
     }
 
     // Subscribe to events and transform them for the frontend
-    let agentDone = false;
+    unsubscribeEvents = session.subscribe((event) => {
+      const transformed = transformEvent(event, currentSessionId, sessionInfo);
+      if (!transformed) return;
 
-    const agentEndPromise = new Promise((resolve) => {
-      unsubscribeEvents = rpc.onEvent((event) => {
-        // Skip internal frames we don't care about
-        if (event.type === 'ready' || event.type === 'response') return;
+      // Special internal signals
+      if (transformed.type === '_agent_end') {
+        // agent_end is informational in SDK mode — prompt() resolves on completion
+        return;
+      }
 
-        const transformed = transformEvent(event, currentSessionId, sessionInfo);
-        if (!transformed) return;
-
-        // Special internal signals
-        if (transformed.type === '_agent_end') {
-          agentDone = true;
-          resolve();
-          return;
-        }
-
-        if (transformed.type === '_token_usage') {
-          sendMessage(ws, {
-            type: 'token-usage',
-            sessionId: currentSessionId,
-            ...transformed.usage,
-          }, username);
-          return;
-        }
-
-        // Forward to frontend
+      if (transformed.type === '_token_usage') {
         sendMessage(ws, {
-          type: 'message',
+          type: 'token-usage',
           sessionId: currentSessionId,
-          data: transformed,
+          ...transformed.usage,
         }, username);
-      });
+        return;
+      }
+
+      // Forward to frontend
+      sendMessage(ws, {
+        type: 'message',
+        sessionId: currentSessionId,
+        data: transformed,
+      }, username);
     });
 
-    // Also resolve on process exit (in case agent_end never fires)
-    const processExitPromise = new Promise((resolve) => {
-      rpc.onEvent((event) => {
-        if (event.type === '_process_exit' || event.type === '_process_error') {
-          resolve();
-        }
-      });
-    });
+    // Send the prompt — this resolves when the turn completes!
+    // No more guessing about completion with process detection / file watching.
+    await session.prompt(prompt);
 
-    // Send the prompt (just the user message — Pi has full native context)
-    await rpc.prompt(prompt);
-
-    // Wait for completion
-    await Promise.race([agentEndPromise, processExitPromise]);
-
-    // Stream complete
+    // Turn is definitively done
     console.log(`[Pi] Query complete - session: ${currentSessionId}`);
     sendMessage(ws, { type: 'done', sessionId: currentSessionId }, username);
 
@@ -881,16 +569,18 @@ export async function handleChat(msg, ws, username) {
       unsubscribeEvents();
     }
 
-    // Release session back to pool (starts idle timer) instead of killing
-    const manager = getRpcSessionManager();
+    // Clean up extension UI bridge
+    if (sessionInfo.bridge) {
+      sessionInfo.bridge.cleanup();
+    }
+
+    // Release session back to pool (starts idle timer)
+    const manager = getSdkSessionManager();
     manager.release(currentSessionId);
 
     activeSessions.delete(currentSessionId);
     setStatus(currentSessionId, 'idle');
     publish(username, { type: 'session-status', sessionId: currentSessionId, status: 'idle' });
-
-    // DON'T clear task manager — session is still alive in the pool
-    // taskManager.clearSession(currentSessionId);
 
     // Clean up temp images
     for (const tempPath of tempImagePaths) {
@@ -903,12 +593,12 @@ export async function handleChat(msg, ws, username) {
  * Abort an active session.
  */
 export async function handleAbort(sessionId) {
-  // First check the active sessions map (mid-query)
+  // Check the active sessions map (mid-query)
   const sessionInfo = activeSessions.get(sessionId);
-  if (sessionInfo?.rpc?.alive) {
+  if (sessionInfo?.session) {
     try {
       console.log(`[Pi] Aborting session: ${sessionId}`);
-      await sessionInfo.rpc.abort();
+      await sessionInfo.session.abort();
 
       if (sessionInfo.activityTracker) {
         sessionInfo.activityTracker.finish();
@@ -922,13 +612,13 @@ export async function handleAbort(sessionId) {
     }
   }
 
-  // Also check the session manager (process may be alive but between queries)
-  const manager = getRpcSessionManager();
-  const poolSession = manager.get(sessionId);
-  if (poolSession?.rpc?.alive) {
+  // Also check the session manager pool (session may be idle between queries)
+  const manager = getSdkSessionManager();
+  const poolEntry = manager.get(sessionId);
+  if (poolEntry?.session) {
     try {
       console.log(`[Pi] Aborting pooled session: ${sessionId}`);
-      await poolSession.rpc.abort();
+      await poolEntry.session.abort();
       return true;
     } catch (err) {
       console.error(`[Pi] Abort error for pooled ${sessionId}:`, err);
@@ -959,51 +649,19 @@ export function resubscribeSession(sessionId, newWs) {
 
 /**
  * Handle question response from frontend.
- * Sends extension_ui_response back to Pi RPC process.
+ * Routes the answer through the extension UI bridge.
  */
 export async function handleQuestionResponse(sessionId, toolUseId, answers) {
   console.log(`[Pi] Received question response for ${toolUseId}`);
 
-  // Check active sessions first, then fall back to session manager pool
-  let rpc = null;
   const sessionInfo = activeSessions.get(sessionId);
-  if (sessionInfo?.rpc?.alive) {
-    rpc = sessionInfo.rpc;
-  } else {
-    const manager = getRpcSessionManager();
-    const poolSession = manager.get(sessionId);
-    if (poolSession?.rpc?.alive) {
-      rpc = poolSession.rpc;
-    }
+  if (sessionInfo?.bridge) {
+    sessionInfo.bridge.handleResponse(toolUseId, answers);
+    return true;
   }
 
-  if (!rpc) {
-    console.log(`[Pi] No active RPC session for ${sessionId}`);
-    return false;
-  }
-
-  // Determine the response value from the answers
-  // Frontend sends answers as an object like { "0": "Yes" } or { "0": ["option1", "option2"] }
-  let responseValue;
-  if (answers && typeof answers === 'object') {
-    const values = Object.values(answers);
-    if (values.length === 1) {
-      responseValue = values[0];
-    } else {
-      responseValue = values;
-    }
-  } else {
-    responseValue = answers;
-  }
-
-  // Check if this was a confirm-type question (Yes/No mapped from confirm method)
-  if (responseValue === 'Yes' || responseValue === 'No') {
-    rpc.sendExtensionUIResponse(toolUseId, { confirmed: responseValue === 'Yes' });
-  } else {
-    rpc.sendExtensionUIResponse(toolUseId, { value: responseValue });
-  }
-
-  return true;
+  console.log(`[Pi] No active session with bridge for ${sessionId}`);
+  return false;
 }
 
 /**
@@ -1017,6 +675,3 @@ export async function handlePlanResponse(sessionId, toolUseId, approved, feedbac
 
 // Export transformEvent for testing
 export { transformEvent as _transformEvent };
-
-// Export RpcClient for use by rpc-session-manager
-export { RpcClient };

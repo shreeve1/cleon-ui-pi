@@ -126,52 +126,31 @@ function initializeMarkdownRenderer() {
   return true;
 }
 
-// StreamingRenderer class for smooth character-by-character animation
+// StreamingRenderer — renders network chunks as they arrive, no character animation.
+// Text is displayed instantly per chunk so the UI always matches the network speed.
 class StreamingRenderer {
   constructor(element) {
     this.element = element;
     this.networkBuffer = '';
-    this.displayedChars = 0;
     this.rafHandle = null;
-    this.timeoutHandle = null;
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    this.charInterval = prefersReducedMotion ? 0 : 5; // ms per char (~200 chars/sec)
   }
 
   appendNetworkChunk(chunk) {
     this.networkBuffer += chunk;
+    // Schedule a single rAF to update the DOM — batches any chunks that
+    // arrive before the next paint into one update.
     if (!this.rafHandle) {
-      this.scheduleRender();
-    }
-  }
-
-  scheduleRender() {
-    this.rafHandle = requestAnimationFrame(() => {
-      this.renderNextChar();
-    });
-  }
-
-  renderNextChar() {
-    if (this.displayedChars < this.networkBuffer.length) {
-      this.displayedChars++;
-      this.element.textContent = this.networkBuffer.slice(0, this.displayedChars);
-
-      // Schedule next character
-      this.timeoutHandle = setTimeout(() => {
-        this.scheduleRender();
-      }, this.charInterval);
-    } else {
-      // Caught up with network buffer
-      this.rafHandle = null;
+      this.rafHandle = requestAnimationFrame(() => {
+        this.rafHandle = null;
+        this.element.textContent = this.networkBuffer;
+      });
     }
   }
 
   finalizeMarkdown() {
-    // Skip to end and apply markdown
     this.element.textContent = this.networkBuffer;
     this.element.innerHTML = formatMarkdown(this.networkBuffer);
 
-    // Apply Prism highlighting to code blocks
     if (typeof Prism !== 'undefined') {
       this.element.querySelectorAll('pre code').forEach(block => {
         Prism.highlightElement(block);
@@ -188,10 +167,6 @@ class StreamingRenderer {
     if (this.rafHandle) {
       cancelAnimationFrame(this.rafHandle);
       this.rafHandle = null;
-    }
-    if (this.timeoutHandle) {
-      clearTimeout(this.timeoutHandle);
-      this.timeoutHandle = null;
     }
   }
 }
@@ -1233,12 +1208,29 @@ function handleServerEvent(event) {
   if (event.type === 'session-created') {
     // Another tab/device created a new session - add it locally if we don't have it
     let localSession = getSessionBySessionId(event.sessionId);
+
+    // Also check for a session with sessionId=null that matches this project
+    // (our own new session waiting for the server-assigned ID)
     if (!localSession && event.project) {
+      localSession = state.sessions.find(s =>
+        s.sessionId === null &&
+        s.project &&
+        s.project.path === event.project.path
+      );
+      if (localSession) {
+        // Found our own session - just update its sessionId, don't create duplicate
+        console.log(`[Session] Assigning server sessionId ${event.sessionId} to local session`);
+        localSession.sessionId = event.sessionId;
+        saveSessionState();
+        return;
+      }
+
+      // Truly a remote session from another tab/device
       console.log(`[Session] Remote session created: ${event.sessionId} (${event.project.name})`);
       const project = {
         name: event.project.name,
         path: event.project.path || '',
-        displayName: event.project.name,
+        displayName: event.project.displayName || event.project.name,
       };
       localSession = createSession(project, event.sessionId);
       localSession.isStreaming = true;
@@ -1404,6 +1396,17 @@ function handleMessage(data, session) {
   if (!session) return;
 
   if (data.type === 'text') {
+    // Deduplicate: if a completed (non-streaming) element with this messageId already
+    // exists in the DOM (rendered from history load), skip this live event entirely.
+    // This prevents double-rendering when the session-watcher emits live events for
+    // content that was already shown via the history API on page load.
+    if (data.messageId && session.containerEl) {
+      const alreadyRendered = session.containerEl.querySelector(
+        `.message:not(.streaming)[data-message-id="${CSS.escape(data.messageId)}"]`
+      );
+      if (alreadyRendered) return;
+    }
+
     session.isStreaming = true;
     session.pendingText = (session.pendingText || '') + data.content;
 
@@ -1480,6 +1483,13 @@ function handleMessage(data, session) {
   }
 
   if (data.type === 'tool_use') {
+    // Deduplicate: skip if this tool call is already rendered from history
+    if (data.messageId && session.containerEl) {
+      const alreadyRendered = session.containerEl.querySelector(
+        `.tool-pill[data-message-id="${CSS.escape(data.messageId)}"]`
+      );
+      if (alreadyRendered) return;
+    }
     flushPendingText(session);
     // Pass enhanced metadata to appendToolMessage
     const toolMetadata = {
@@ -4682,5 +4692,100 @@ closeSession = function(index) {
 };
 
 // ==================== End File Tree & Editor Functions ====================
+
+// ==================== Toast Notification Functions ====================
+
+/**
+ * Show a toast notification
+ * @param {string} message - The message to display
+ * @param {string} type - The type of toast: 'success', 'error', or 'info'
+ */
+function showToast(message, type = 'info') {
+  // Ensure valid type
+  const validTypes = ['success', 'error', 'info'];
+  if (!validTypes.includes(type)) {
+    type = 'info';
+  }
+
+  // Get or create toast container
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    document.body.appendChild(container);
+  }
+
+  // Create toast element
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.setAttribute('role', 'alert');
+  toast.setAttribute('aria-live', 'polite');
+
+  // Create icon based on type
+  const icon = document.createElement('span');
+  icon.className = 'toast-icon';
+  switch (type) {
+    case 'success':
+      icon.innerHTML = '&#10003;'; // Checkmark
+      break;
+    case 'error':
+      icon.innerHTML = '&#10007;'; // X mark
+      break;
+    case 'info':
+    default:
+      icon.innerHTML = '&#8505;'; // Info circle
+      break;
+  }
+
+  // Create message element
+  const messageEl = document.createElement('span');
+  messageEl.className = 'toast-message';
+  messageEl.textContent = message;
+
+  // Create close button
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'toast-close';
+  closeBtn.innerHTML = '&times;';
+  closeBtn.setAttribute('aria-label', 'Close notification');
+  closeBtn.onclick = () => dismissToast(toast);
+
+  // Assemble toast
+  toast.appendChild(icon);
+  toast.appendChild(messageEl);
+  toast.appendChild(closeBtn);
+  container.appendChild(toast);
+
+  // Trigger animation
+  requestAnimationFrame(() => {
+    toast.classList.add('toast-visible');
+  });
+
+  // Auto-dismiss after 3 seconds
+  setTimeout(() => {
+    dismissToast(toast);
+  }, 3000);
+
+  return toast;
+}
+
+/**
+ * Dismiss a toast notification
+ * @param {HTMLElement} toast - The toast element to dismiss
+ */
+function dismissToast(toast) {
+  if (!toast || !toast.parentElement) return;
+
+  toast.classList.remove('toast-visible');
+  toast.classList.add('toast-hiding');
+
+  // Remove after animation completes
+  setTimeout(() => {
+    if (toast.parentElement) {
+      toast.parentElement.removeChild(toast);
+    }
+  }, 300);
+}
+
+// ==================== End Toast Notification Functions ====================
 
 init();

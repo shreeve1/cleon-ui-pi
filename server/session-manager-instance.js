@@ -1,10 +1,10 @@
-import { RpcSessionManager } from './rpc-session-manager.js';
+import { SdkSessionManager } from './sdk-session-manager.js';
 
-const rpcSessionManager = new RpcSessionManager();
-await rpcSessionManager.start();
+const sdkSessionManager = new SdkSessionManager();
+await sdkSessionManager.start();
 
-export function getRpcSessionManager() {
-  return rpcSessionManager;
+export function getSdkSessionManager() {
+  return sdkSessionManager;
 }
 
-export default rpcSessionManager;
+export default sdkSessionManager;

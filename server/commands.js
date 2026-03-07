@@ -97,6 +97,19 @@ export async function getProjectCommands(projectPath) {
 }
 
 /**
+ * Get project-specific skills from <projectPath>/.pi/skills/
+ * Only includes top-level skills that have a SKILL.md file.
+ * @param {string} projectPath - The project's filesystem path
+ * @returns {Promise<Array>} Array of project skill objects
+ */
+export async function getProjectSkills(projectPath) {
+  if (!projectPath) return [];
+
+  const skillsDir = path.join(projectPath, '.pi', 'skills');
+  return discoverSkills(skillsDir, 'skill');
+}
+
+/**
  * Get skills from a directory (Pi skill format)
  * Only includes top-level skills that have a SKILL.md file.
  * @param {string} skillsDir - Path to skills directory
@@ -146,7 +159,7 @@ async function discoverSkills(skillsDir, source) {
  */
 export async function getPiSkills() {
   const skillsDir = path.join(os.homedir(), '.pi', 'agent', 'skills');
-  return discoverSkills(skillsDir, 'pi-skill');
+  return discoverSkills(skillsDir, 'skill');
 }
 
 /**
@@ -190,13 +203,14 @@ export async function getPiPrompts() {
 }
 
 /**
- * Get all commands merged (pi prompts + pi skills + project, with project taking precedence)
+ * Get all commands merged (pi prompts + pi skills + project skills + project commands, with project taking precedence)
  * @param {string} projectPath - Optional project path
  * @returns {Promise<Array>} Merged array of commands
  */
 export async function getAllCommands(projectPath) {
-  const [projectCommands, piSkills, piPrompts] = await Promise.all([
+  const [projectCommands, projectSkills, piSkills, piPrompts] = await Promise.all([
     getProjectCommands(projectPath),
+    getProjectSkills(projectPath),
     getPiSkills(),
     getPiPrompts()
   ]);
@@ -210,6 +224,11 @@ export async function getAllCommands(projectPath) {
 
   // Pi skills override prompts
   for (const skill of piSkills) {
+    commandMap.set(skill.name, skill);
+  }
+
+  // Project skills override pi skills
+  for (const skill of projectSkills) {
     commandMap.set(skill.name, skill);
   }
 

@@ -51,7 +51,7 @@ const claudeSettings = loadClaudeSettings();
 module.exports = {
   apps: [
     {
-      name: 'cleon-ui',
+      name: 'cleon-ui-pi',
       script: 'server/index.js',
       instances: 1,
       exec_mode: 'fork',
