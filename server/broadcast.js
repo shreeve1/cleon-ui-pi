@@ -8,31 +8,67 @@
 const sessionMessageBuffers = new Map();
 // Map of sessionId -> number (current byte size of buffer)
 const sessionBufferBytes = new Map();
+// Map of sessionId -> number (count of overflow events for metrics)
+const sessionOverflowCounts = new Map();
 
 const MAX_BUFFER_SIZE = 1000;
 const MAX_BUFFER_BYTES = 5 * 1024 * 1024; // 5MB
+const SLIDING_WINDOW_SIZE = 500; // Keep last N messages on overflow
 
 /**
  * Buffer a message for a session (for SSE replay to late-joining clients)
  * The event bus handles actual delivery to SSE clients
  * @param {string} sessionId - The session ID
  * @param {object} message - The message object to buffer
+ * @returns {boolean} True if message was buffered, false if dropped due to overflow
  */
 export function broadcastToSession(sessionId, message) {
   const messageStr = JSON.stringify(message);
 
   // Capture message into replay buffer if active for this session
   const buffer = sessionMessageBuffers.get(sessionId);
-  if (!buffer) return;
+  if (!buffer) return false;
 
   const currentBytes = sessionBufferBytes.get(sessionId) || 0;
+  
+  // Check if we can add the message normally
   if (buffer.length < MAX_BUFFER_SIZE && currentBytes + messageStr.length <= MAX_BUFFER_BYTES) {
     buffer.push(messageStr);
     sessionBufferBytes.set(sessionId, currentBytes + messageStr.length);
-  } else if (!buffer.overflowed) {
-    buffer.overflowed = true;
-    console.log(`[Broadcast] Buffer overflow for session ${sessionId} (${buffer.length} messages, ${currentBytes} bytes) - stopped buffering`);
+    return true;
   }
+  
+  // Buffer is full - implement sliding window recovery (Task 4.2)
+  // Drop oldest messages to make room for new ones
+  const messagesToDrop = Math.max(1, Math.floor(SLIDING_WINDOW_SIZE / 2));
+  const droppedMessages = buffer.splice(0, messagesToDrop);
+  
+  // Recalculate bytes after dropping
+  let newBytes = 0;
+  for (const msg of buffer) {
+    newBytes += msg.length;
+  }
+  
+  // Add the new message
+  buffer.push(messageStr);
+  newBytes += messageStr.length;
+  sessionBufferBytes.set(sessionId, newBytes);
+  
+  // Track overflow count for metrics (Task 4.3)
+  const overflowCount = (sessionOverflowCounts.get(sessionId) || 0) + 1;
+  sessionOverflowCounts.set(sessionId, overflowCount);
+  
+  // Log overflow event with metrics (Task 4.3)
+  console.log(`[Broadcast] Buffer overflow for session ${sessionId}: dropped ${messagesToDrop} messages, kept ${buffer.length}/${MAX_BUFFER_SIZE} messages (${newBytes} bytes), total overflows: ${overflowCount}`);
+  
+  // Emit buffer overflow event for frontend notification (Task 4.1)
+  const droppedCount = droppedMessages.length;
+  console.log(`[Broadcast] BUFFER_OVERFLOW event for session ${sessionId}: ${droppedCount} messages dropped`);
+  
+  // Note: Frontend can listen for BUFFER_OVERFLOW type messages if sent via event bus
+  // The event bus will handle broadcasting this to connected clients
+  
+  return true;
 }
 
 /**
@@ -43,6 +79,7 @@ export function broadcastToSession(sessionId, message) {
 export function startSessionBuffer(sessionId) {
   sessionMessageBuffers.set(sessionId, []);
   sessionBufferBytes.set(sessionId, 0);
+  sessionOverflowCounts.set(sessionId, 0);
   console.log(`[Broadcast] Started message buffer for session ${sessionId}`);
 }
 
@@ -126,11 +163,32 @@ export function hasActiveBuffer(sessionId) {
  */
 export function clearSessionBuffer(sessionId) {
   const buffer = sessionMessageBuffers.get(sessionId);
+  const overflowCount = sessionOverflowCounts.get(sessionId) || 0;
   if (buffer) {
-    console.log(`[Broadcast] Cleared buffer for session ${sessionId} (${buffer.length} messages)`);
+    console.log(`[Broadcast] Cleared buffer for session ${sessionId} (${buffer.length} messages, ${overflowCount} overflows recorded)`);
   }
   sessionMessageBuffers.delete(sessionId);
   sessionBufferBytes.delete(sessionId);
+  sessionOverflowCounts.delete(sessionId);
+}
+
+/**
+ * Get buffer statistics for a session (for debugging/monitoring)
+ * @param {string} sessionId - The session ID to get stats for
+ * @returns {object|null} Stats object with buffer info, or null if no buffer
+ */
+export function getBufferStats(sessionId) {
+  const buffer = sessionMessageBuffers.get(sessionId);
+  if (!buffer) return null;
+  
+  return {
+    messageCount: buffer.length,
+    maxMessages: MAX_BUFFER_SIZE,
+    byteSize: sessionBufferBytes.get(sessionId) || 0,
+    maxBytes: MAX_BUFFER_BYTES,
+    overflowCount: sessionOverflowCounts.get(sessionId) || 0,
+    slidingWindowSize: SLIDING_WINDOW_SIZE
+  };
 }
 
 

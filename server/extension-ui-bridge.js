@@ -22,6 +22,31 @@ export function createExtensionUIBridge(sessionId, sendMessage, username) {
   // Pending UI requests: requestId → { resolve }
   const pending = new Map();
 
+  function getFirstResponseValue(result) {
+    if (result === undefined || result === null) return undefined;
+    if (typeof result !== 'object') return result;
+
+    const values = Object.values(result);
+    if (values.length === 0) return undefined;
+    return values[0];
+  }
+
+  function normalizeSingleValue(result) {
+    const value = getFirstResponseValue(result);
+    if (Array.isArray(value)) {
+      return value.length > 0 ? value[0] : undefined;
+    }
+    return value;
+  }
+
+  function normalizeSelectValue(result, canPickMany = false) {
+    const value = getFirstResponseValue(result);
+    if (Array.isArray(value)) {
+      return canPickMany ? value : value[0];
+    }
+    return value;
+  }
+
   /**
    * Send a UI request to the browser and wait for the response.
    */
@@ -55,13 +80,8 @@ export function createExtensionUIBridge(sessionId, sendMessage, username) {
         }],
       });
 
-      // Frontend sends result as { "0": "selectedValue" } or undefined
-      if (result === undefined || result === null) return undefined;
-      if (typeof result === 'object') {
-        const values = Object.values(result);
-        return values.length === 1 ? values[0] : values[0];
-      }
-      return result;
+      const normalized = normalizeSelectValue(result, opts?.canPickMany || false);
+      return normalized;
     },
 
     async confirm(title, message, opts) {
@@ -77,13 +97,9 @@ export function createExtensionUIBridge(sessionId, sendMessage, username) {
         }],
       });
 
-      // Map frontend response to boolean
-      if (result === undefined || result === null) return false;
-      if (typeof result === 'object') {
-        const value = Object.values(result)[0];
-        return value === 'Yes';
-      }
-      return result === 'Yes';
+      const normalized = normalizeSingleValue(result);
+      if (normalized === undefined || normalized === null) return false;
+      return normalized === 'Yes';
     },
 
     async input(title, placeholder, opts) {
@@ -98,11 +114,7 @@ export function createExtensionUIBridge(sessionId, sendMessage, username) {
         }],
       });
 
-      if (result === undefined || result === null) return undefined;
-      if (typeof result === 'object') {
-        return Object.values(result)[0];
-      }
-      return result;
+      return normalizeSingleValue(result);
     },
 
     notify(message, type) {

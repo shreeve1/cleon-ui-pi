@@ -13,7 +13,6 @@ A lightweight, mobile-first web interface for Claude Code featuring a retro 80s 
 - **Project Management**: Search, create, and organize Claude Code projects
 - **File Upload**: Drag-and-drop support for images, text, PDFs, and markdown
 - **Slash Commands**: Quick access to common actions
-- **Mode Switching**: Toggle between default, plan, and bypass modes
 - **Favorites System**: Pin frequently-used projects
 - **User Authentication**: Multi-user support with JWT-based auth
 - **Token Usage Tracking**: Monitor API usage per session

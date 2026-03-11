@@ -512,23 +512,58 @@ server.listen(PORT, HOST, () => {
 
 // Graceful shutdown
 async function gracefulShutdown(signal) {
-  logger.info(`${signal} received, shutting down...`);
+  logger.info(`${signal} received, shutting down gracefully...`);
 
-  const activeCount = sdkSessionManager.size;
-  if (activeCount > 0) {
-    logger.info(`Stopping ${activeCount} active SDK sessions...`);
-  }
+  const shutdownStartTime = Date.now();
 
-  // Stop CLI session file watchers
+  // 1. Clear heartbeat interval immediately to prevent interference
+  clearInterval(heartbeatInterval);
+
+  // 2. Stop CLI session file watchers
   stopAllWatchers();
 
-  // Destroy all SDK sessions first (lets Pi flush session files)
-  // with a 5-second timeout so we don't hang forever
+  // 3. Close all WebSocket connections gracefully (code 1001 = Going Away)
+  // Give WebSocket clients 500ms to acknowledge close before terminating
+  const wsClosePromise = new Promise((resolve) => {
+    const clients = Array.from(wss.clients);
+    if (clients.length === 0) {
+      resolve();
+      return;
+    }
+
+    logger.info(`Closing ${clients.length} WebSocket connection(s)...`);
+    let closed = 0;
+
+    clients.forEach((ws) => {
+      ws.close(1001, 'Server shutting down');
+      ws.on('close', () => {
+        closed++;
+        if (closed >= clients.length) resolve();
+      });
+      // Terminate any that don't close gracefully within 300ms
+      setTimeout(() => {
+        if (ws.readyState === ws.OPEN) {
+          ws.terminate();
+        }
+        closed++;
+        if (closed >= clients.length) resolve();
+      }, 300);
+    });
+  });
+
+  // Wait for WebSocket close with timeout (max 500ms)
+  await Promise.race([
+    wsClosePromise,
+    new Promise((resolve) => setTimeout(resolve, 500))
+  ]);
+
+  // 4. Destroy all SDK sessions (lets Pi flush session files)
+  // Timeout: 800ms to stay within PM2's ~1600ms window
   try {
     await Promise.race([
       sdkSessionManager.destroyAll(),
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('SDK shutdown timed out')), 5000)
+        setTimeout(() => reject(new Error('SDK shutdown timed out')), 800)
       ),
     ]);
     logger.info('All SDK sessions stopped');
@@ -536,16 +571,33 @@ async function gracefulShutdown(signal) {
     logger.warn('SDK shutdown did not complete cleanly', { error: err.message });
   }
 
-  server.close(() => {
-    logger.info('Server closed');
-    process.exit(0);
+  // 5. Close HTTP server
+  // Timeout: 300ms for server close
+  const serverClosePromise = new Promise((resolve, reject) => {
+    server.close((err) => {
+      if (err) reject(err);
+      else resolve();
+    });
   });
 
-  // Force exit if server.close hangs
-  setTimeout(() => {
-    logger.warn('Forced exit after server close timeout');
-    process.exit(1);
-  }, 5000).unref();
+  try {
+    await Promise.race([
+      serverClosePromise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Server close timed out')), 300)
+      ),
+    ]);
+    logger.info('Server closed');
+  } catch (err) {
+    logger.warn('Server close did not complete cleanly', { error: err.message });
+  }
+
+  // 6. Final cleanup verification and explicit exit
+  const shutdownDuration = Date.now() - shutdownStartTime;
+  logger.info(`Graceful shutdown completed in ${shutdownDuration}ms`);
+
+  // Explicit process.exit(0) to prevent hanging and ensure PM2 sees clean exit
+  process.exit(0);
 }
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));

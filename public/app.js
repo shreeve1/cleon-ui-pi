@@ -36,8 +36,6 @@ const state = {
   sseConnected: false,
   sessions: [],
   activeSessionIndex: -1,
-  modeIndex: 2,
-  currentMode: 'bypass',
   searchTimeout: null,
   customCommands: [],
   forceNewTab: false,
@@ -239,14 +237,12 @@ function switchToSession(index) {
     abortBtn.classList.remove('hidden');
     chatInput.disabled = true;
     sendBtn.disabled = true;
-    modeBtn.disabled = true;
     modelBtn.disabled = true;
     attachBtn.disabled = true;
   } else {
     abortBtn.classList.add('hidden');
     chatInput.disabled = false;
     sendBtn.disabled = false;
-    modeBtn.disabled = false;
     modelBtn.disabled = false;
     attachBtn.disabled = false;
   }
@@ -567,13 +563,6 @@ async function restoreSessionState() {
   }
 }
 
-// Mode configuration
-const MODES = [
-  { name: 'default', label: 'Default', color: 'var(--neon-cyan)' },
-  { name: 'plan', label: 'Plan Mode', color: 'var(--neon-green)' },
-  { name: 'bypass', label: 'Bypass Permissions', color: 'var(--neon-red)' }
-];
-
 // Favorites storage utilities
 function getFavorites() {
   try {
@@ -650,7 +639,6 @@ const newSessionBtn = $('#new-session-btn');
 const chatForm = $('#chat-form');
 const chatInput = $('#chat-input');
 const sendBtn = $('#send-btn');
-const modeBtn = $('#mode-btn');
 const sessionContainersEl = $('#session-containers');
 const sessionBarEl = $('#session-bar');
 const sessionTabsEl = $('#session-tabs');
@@ -1148,14 +1136,12 @@ function handleServerEvent(event) {
         abortBtn.classList.remove('hidden');
         chatInput.disabled = true;
         sendBtn.disabled = true;
-        modeBtn.disabled = true;
         modelBtn.disabled = true;
         attachBtn.disabled = true;
       } else {
         abortBtn.classList.add('hidden');
         chatInput.disabled = false;
         sendBtn.disabled = false;
-        modeBtn.disabled = false;
         modelBtn.disabled = false;
         attachBtn.disabled = false;
       }
@@ -1179,14 +1165,12 @@ function handleServerEvent(event) {
           abortBtn.classList.remove('hidden');
           chatInput.disabled = true;
           sendBtn.disabled = true;
-          modeBtn.disabled = true;
           modelBtn.disabled = true;
           attachBtn.disabled = true;
         } else {
           abortBtn.classList.add('hidden');
           chatInput.disabled = false;
           sendBtn.disabled = false;
-          modeBtn.disabled = false;
           modelBtn.disabled = false;
           attachBtn.disabled = false;
         }
@@ -1622,7 +1606,6 @@ function finishStreaming(session) {
     chatInput.disabled = false;
     chatInput.placeholder = 'Message...';
     sendBtn.disabled = false;
-    modeBtn.disabled = false;
     modelBtn.disabled = false;
     attachBtn.disabled = false;
   }
@@ -2144,11 +2127,14 @@ function renderQuestion(data, session) {
 
   data.questions.forEach((q, qIndex) => {
     const isMultiple = q.multiSelect || q.multiple || false;
+    const displayParts = typeof window.getQuestionDisplayParts === 'function'
+      ? window.getQuestionDisplayParts(q)
+      : { header: q.header || '', question: q.question || '' };
 
     html += `
       <div class="question-group" data-question-index="${qIndex}" data-multiple="${isMultiple}">
-        <div class="question-header">${escapeHtml(q.header || '')}</div>
-        <div class="question-text">${escapeHtml(q.question)}</div>
+        <div class="question-header">${escapeHtml(displayParts.header || '')}</div>
+        <div class="question-text">${escapeHtml(displayParts.question || '')}</div>
         <div class="question-options">
     `;
 
@@ -2471,7 +2457,6 @@ function sendMessage(content) {
     return;
   }
 
-  const mode = MODES[state.modeIndex];
 
   console.log('[Session] Sending message with sessionId:', session.sessionId, 'isNewSession:', !session.sessionId);
 
@@ -2483,7 +2468,6 @@ function sendMessage(content) {
   const message = {
     type: 'chat',
     content: content,
-    mode: mode.name,
     model: state.selectedModel,
     projectPath: session.project.path,
     sessionId: session.sessionId,
@@ -2505,7 +2489,6 @@ function sendMessage(content) {
     session.isStreaming = false;
     chatInput.disabled = false;
     sendBtn.disabled = false;
-    modeBtn.disabled = false;
     modelBtn.disabled = false;
     attachBtn.disabled = false;
     return;
@@ -2527,7 +2510,6 @@ function sendMessage(content) {
   abortBtn.classList.remove('hidden');
   chatInput.disabled = true;
   sendBtn.disabled = true;
-  modeBtn.disabled = true;
   modelBtn.disabled = true;
   attachBtn.disabled = true;
 }
@@ -2538,11 +2520,8 @@ chatInput.addEventListener('input', () => {
 });
 
 chatInput.addEventListener('keydown', (e) => {
-  // Shift+Tab cycles through modes
-  if (e.key === 'Tab' && e.shiftKey) {
-    e.preventDefault();
-    cycleMode();
-    return;
+  if (slashCommandsEl && !slashCommandsEl.classList.contains('hidden')) {
+    if (handleSlashCommandKeydown(e)) return;
   }
   if (slashCommandsEl && !slashCommandsEl.classList.contains('hidden')) {
     if (handleSlashCommandKeydown(e)) return;
@@ -3069,40 +3048,6 @@ function selectFileMention(filePath) {
   chatInput.dispatchEvent(new Event('input'));
 }
 
-// Mode button functions
-function cycleMode() {
-  // If switching away from plan mode while confirmation is pending, auto-deny
-  const activeSession = getActiveSession();
-  if (activeSession && activeSession.pendingPlanConfirmation) {
-    sendPlanResponse(activeSession, activeSession.pendingPlanConfirmation.id, false, 'Mode changed');
-    activeSession.pendingPlanConfirmation = null;
-    if (activeSession.containerEl) {
-      const planBlock = activeSession.containerEl.querySelector('.plan-confirmation-block:not(.submitted)');
-      if (planBlock) {
-        markPlanConfirmationSubmitted(planBlock, 'rejected');
-      }
-    }
-  }
-  state.modeIndex = (state.modeIndex + 1) % MODES.length;
-  state.currentMode = MODES[state.modeIndex].name;
-  updateModeButton();
-}
-
-function updateModeButton() {
-  const mode = MODES[state.modeIndex];
-
-  // Remove all mode classes
-  modeBtn.classList.remove('mode-default', 'mode-plan', 'mode-bypass');
-
-  // Add current mode class
-  modeBtn.classList.add(`mode-${mode.name}`);
-
-  // Update title/tooltip
-  modeBtn.title = mode.label;
-}
-
-modeBtn.addEventListener('click', cycleMode);
-
 newSessionTabBtn.addEventListener('click', () => {
   if (state.sessions.length >= MAX_SESSIONS) {
     alert(`Maximum ${MAX_SESSIONS} sessions reached`);
@@ -3114,11 +3059,20 @@ newSessionTabBtn.addEventListener('click', () => {
 
 abortBtn.addEventListener('click', () => {
   const session = getActiveSession();
+  console.log('[Abort] Button clicked', {
+    hasSession: !!session,
+    sessionId: session?.sessionId,
+    isStreaming: session?.isStreaming,
+    wsReady: state.ws?.readyState
+  });
   if (session && session.sessionId && session.isStreaming) {
+    console.log('[Abort] Sending abort message for session:', session.sessionId);
     state.ws.send(JSON.stringify({
       type: 'abort',
       sessionId: session.sessionId
     }));
+  } else {
+    console.warn('[Abort] Not sending abort - conditions not met');
   }
 });
 
@@ -3493,7 +3447,6 @@ async function attachToActiveSession(session) {
         abortBtn.classList.remove('hidden');
         chatInput.disabled = true;
         sendBtn.disabled = true;
-        modeBtn.disabled = true;
         modelBtn.disabled = true;
         attachBtn.disabled = true;
         if (session.isExternal) {
@@ -3571,7 +3524,6 @@ backToProjectsBtn.addEventListener('click', () => {
 function enableChat() {
   chatInput.disabled = false;
   sendBtn.disabled = false;
-  modeBtn.disabled = false;
   modelBtn.disabled = false;
   attachBtn.disabled = false;
   abortBtn.classList.add('hidden');

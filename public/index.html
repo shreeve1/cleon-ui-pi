@@ -56,18 +56,6 @@
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
             </svg>
           </button>
-          <button type="button" id="mode-btn" class="icon-btn mode-bypass" title="Bypass Permissions" disabled>
-            <svg class="mode-icon mode-icon-default" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-            </svg>
-            <svg class="mode-icon mode-icon-plan" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
-              <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
-            </svg>
-            <svg class="mode-icon mode-icon-bypass" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-            </svg>
-          </button>
           <div id="model-btn-wrapper">
             <button type="button" id="model-btn" class="model-select-btn" title="Select model">
               <span id="model-btn-label">Loading...</span>
@@ -198,6 +186,7 @@
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29/components/prism-css.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29/components/prism-typescript.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+  <script type="module" src="question-utils.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

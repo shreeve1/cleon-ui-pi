@@ -13,6 +13,11 @@ import { createExtensionUIBridge } from './extension-ui-bridge.js';
 // Constants
 const TOOL_OUTPUT_TRUNCATE_LENGTH = 1500;
 const TOOL_SUMMARY_TRUNCATE_LENGTH = 200;
+const SUPPRESS_TOOL_DROP_NOTIFICATIONS = String(process.env.SUPPRESS_TOOL_DROP_NOTIFICATIONS || '').toLowerCase() === 'true';
+
+// NOTE: "Dropping unknown tool ..." PM2 logs are emitted by the Pi SDK's
+// internal claude-agent-bridge logger, not via AgentSessionEvent.
+// We cannot intercept those log lines directly unless the SDK exposes events.
 
 // ─── Active sessions ────────────────────────────────────────────────
 
@@ -23,6 +28,9 @@ const activeSessions = new Map();
 // Tool timing
 const toolStartTimes = new Map();
 const toolUseToTaskMap = new Map();
+
+// Session-level dedupe for tool-drop notifications: Map<sessionId, Set<toolName>>
+const notifiedDroppedTools = new Map();
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -120,6 +128,27 @@ function getToolSummary(tool, input) {
   if (!input) return { summary: tool };
   const formatter = toolFormatters[tool.toLowerCase()];
   return formatter ? formatter(input) : { summary: tool };
+}
+
+function normalizeDroppedToolName(rawToolName) {
+  if (!rawToolName || typeof rawToolName !== 'string') return 'unknown';
+  return rawToolName.replace(/^mcp__[^_]+__/, '');
+}
+
+function shouldNotifyDroppedTool(sessionId, toolName) {
+  if (!sessionId || !toolName || SUPPRESS_TOOL_DROP_NOTIFICATIONS) return false;
+  if (!notifiedDroppedTools.has(sessionId)) {
+    notifiedDroppedTools.set(sessionId, new Set());
+    // Prevent unbounded growth if many historical session IDs accumulate.
+    if (notifiedDroppedTools.size > 500) {
+      const oldestSessionId = notifiedDroppedTools.keys().next().value;
+      notifiedDroppedTools.delete(oldestSessionId);
+    }
+  }
+  const seen = notifiedDroppedTools.get(sessionId);
+  if (seen.has(toolName)) return false;
+  seen.add(toolName);
+  return true;
 }
 
 // ─── Pi Event → Cleon UI Message Transformation ────────────────────
@@ -316,9 +345,25 @@ function transformEvent(event, sessionId, sessionInfo) {
 
     // ── Extension errors ──
     case 'extension_error': {
+      // Capture full error details including stack traces
+      const errorObj = event.error;
+      let errorSummary = 'unknown';
+      let errorType = 'Unknown';
+      
+      if (errorObj instanceof Error) {
+        errorSummary = `${errorObj.name}: ${errorObj.message}`;
+        errorType = errorObj.name;
+      } else if (typeof errorObj === 'object' && errorObj !== null) {
+        errorSummary = errorObj.message || JSON.stringify(errorObj);
+        errorType = errorObj.name || 'Object';
+      } else if (typeof errorObj === 'string') {
+        errorSummary = errorObj;
+        errorType = 'String';
+      }
+      
       return {
         type: 'text',
-        content: `\n\n[Extension error: ${event.error || 'unknown'}]\n`,
+        content: `\n\n[Extension error (${errorType}): ${errorSummary}]\n`,
         timestamp,
         messageId,
       };
@@ -374,6 +419,20 @@ function transformEvent(event, sessionId, sessionInfo) {
         };
       }
       return null;
+    }
+
+    // NOTE: As of current Pi SDK, there is no documented AgentSessionEvent for
+    // dropped/unknown tools. This case is future-proof for potential SDK support.
+    case 'unknown_tool':
+    case 'tool_dropped': {
+      const droppedTool = normalizeDroppedToolName(event.toolName || event.tool || event.name);
+      if (!shouldNotifyDroppedTool(sessionId, droppedTool)) return null;
+      return {
+        type: 'text',
+        content: `\n[Tool '${droppedTool}' not available - skipping]\n`,
+        timestamp,
+        messageId,
+      };
     }
 
     default:
@@ -459,7 +518,15 @@ export async function handleChat(msg, ws, username) {
       await session.bindExtensions({
         uiContext: bridge.uiContext,
         commandContextActions: {},
-        onError: (err) => console.error('[Pi] Extension error', { sessionId: currentSessionId, error: err.message }),
+        onError: (err) => {
+          // Serialize full error object, not just err.message
+          const errorDetails = err instanceof Error
+            ? { message: err.message, stack: err.stack, name: err.name }
+            : typeof err === 'object' && err !== null
+              ? { ...err, errorType: typeof err }
+              : { error: err, errorType: typeof err };
+          console.error('[Pi] Extension error', { sessionId: currentSessionId, error: errorDetails });
+        },
       });
     } else {
       // Lightweight per-turn update — just swaps the uiContext reference
@@ -493,20 +560,30 @@ export async function handleChat(msg, ws, username) {
       try {
         // Use the model registry to resolve and set the model
         const modelRegistry = session.modelRegistry;
-        const model = modelRegistry.getModel(provider, modelId);
-        if (model) {
-          await session.setModel(model);
-          console.log(`[Pi] Model set to ${msg.model}`);
+        
+        // Safely access model registry with proper null checks
+        if (!modelRegistry) {
+          console.warn(`[Pi] Model registry not available, using default model`);
+        } else if (typeof modelRegistry.find !== 'function') {
+          console.warn(`[Pi] Model registry API has changed (find method not found), using default model`);
         } else {
-          console.warn(`[Pi] Model ${msg.model} not found in registry`);
+          const model = modelRegistry.find(provider, modelId);
+          if (model) {
+            await session.setModel(model);
+            console.log(`[Pi] Model set to ${msg.model}`);
+          } else {
+            console.warn(`[Pi] Model ${msg.model} not found in registry, using default model`);
+          }
         }
       } catch (err) {
-        console.error(`[Pi] Failed to set model ${msg.model}:`, err.message);
+        console.warn(`[Pi] Failed to set model ${msg.model}: ${err.message || err}`);
         // Don't fail the chat — continue with default model
       }
     }
 
-    // Subscribe to events and transform them for the frontend
+    // Subscribe to events and transform them for the frontend.
+    // NOTE: SDK bridge logs like "Dropping unknown tool ..." are emitted
+    // internally and are not delivered via AgentSessionEvent today.
     unsubscribeEvents = session.subscribe((event) => {
       const transformed = transformEvent(event, currentSessionId, sessionInfo);
       if (!transformed) return;
@@ -546,18 +623,27 @@ export async function handleChat(msg, ws, username) {
     console.error('[Pi] Query error:', err);
 
     const errMsg = err.message || '';
-    const isRateLimit = errMsg.includes('429') ||
-                        errMsg.includes('rate limit') ||
-                        errMsg.includes('Rate limit');
-    const userMessage = isRateLimit
-      ? 'Rate limit reached. The API is temporarily throttled — please wait a moment and try again.'
-      : errMsg || 'Query failed';
+    const isAbort = err.name === 'AbortError' || errMsg.toLowerCase().includes('abort');
 
-    sendMessage(ws, {
-      type: 'error',
-      sessionId: currentSessionId || msg.sessionId || null,
-      message: userMessage,
-    }, username);
+    // Don't send error message for aborts - the abort-result message handles UI state
+    if (isAbort) {
+      console.log(`[Pi] Query aborted - session: ${currentSessionId}`);
+      // Still send 'done' so the frontend properly finishes streaming
+      sendMessage(ws, { type: 'done', sessionId: currentSessionId }, username);
+    } else {
+      const isRateLimit = errMsg.includes('429') ||
+                          errMsg.includes('rate limit') ||
+                          errMsg.includes('Rate limit');
+      const userMessage = isRateLimit
+        ? 'Rate limit reached. The API is temporarily throttled — please wait a moment and try again.'
+        : errMsg || 'Query failed';
+
+      sendMessage(ws, {
+        type: 'error',
+        sessionId: currentSessionId || msg.sessionId || null,
+        message: userMessage,
+      }, username);
+    }
   } finally {
     if (sessionInfo.activityTracker) {
       sessionInfo.activityTracker.finish();
