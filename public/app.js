@@ -42,6 +42,7 @@ const state = {
   selectedModel: localStorage.getItem('selectedModel') || null,
   availableModels: [],
   defaultModel: null,
+  selectedTeam: localStorage.getItem('selectedTeam') || 'none',
 };
 
 // Session object factory
@@ -701,6 +702,10 @@ function parseCommand(message) {
   return { command, args };
 }
 
+function hasValidToken() {
+  return typeof state.token === 'string' && state.token.trim() !== '' && state.token !== 'null';
+}
+
 // Model selection
 function setModel(modelKey) {
   state.selectedModel = modelKey;
@@ -725,14 +730,12 @@ function setModel(modelKey) {
 // Fetch models from server and populate dropdown
 async function fetchAndPopulateModels() {
   try {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      // Not logged in yet - will be fetched after login in showMain()
+    if (!hasValidToken()) {
       if (modelBtnLabel) modelBtnLabel.textContent = '...';
       return;
     }
     const resp = await fetch('/api/models', {
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { 'Authorization': `Bearer ${state.token}` }
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const config = await resp.json();
@@ -767,10 +770,12 @@ async function fetchAndPopulateModels() {
 modelBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   modelDropdown.classList.toggle('hidden');
+  modelBtn.setAttribute('aria-expanded', String(!modelDropdown.classList.contains('hidden')));
 });
 
 document.addEventListener('click', () => {
   modelDropdown.classList.add('hidden');
+  modelBtn.setAttribute('aria-expanded', 'false');
 });
 
 // Execute a built-in command locally
@@ -912,6 +917,11 @@ function getAllCommands() {
 
 // Load custom commands from the API
 async function loadCustomCommands(projectPath = null) {
+  if (!hasValidToken()) {
+    state.customCommands = [];
+    return;
+  }
+
   try {
     let url = '/api/commands';
     if (projectPath) {
@@ -924,6 +934,55 @@ async function loadCustomCommands(projectPath = null) {
   }
 }
 
+
+async function initTeamSelector() {
+  const selector = document.getElementById('team-selector');
+  if (!selector) return;
+
+  if (!hasValidToken()) return;
+
+  const savedTeam = localStorage.getItem('selectedTeam');
+
+  try {
+    const response = await fetch('/api/teams', {
+      headers: { 'Authorization': `Bearer ${state.token}` }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to load teams: ${response.status}`);
+    }
+
+    const teams = await response.json();
+
+    selector.innerHTML = '<option value="none">No team (direct)</option>';
+    teams.forEach(team => {
+      const option = document.createElement('option');
+      option.value = team.name;
+      option.textContent = team.name;
+      selector.appendChild(option);
+    });
+
+    if (savedTeam && teams.find(t => t.name === savedTeam)) {
+      selector.value = savedTeam;
+    } else if (teams.find(t => t.name === 'full')) {
+      selector.value = 'full';
+    } else {
+      selector.value = 'none';
+    }
+
+    state.selectedTeam = selector.value;
+  } catch (error) {
+    console.error('Failed to load teams:', error);
+    selector.value = 'none';
+    state.selectedTeam = 'none';
+    showToast('Failed to load teams. Falling back to direct mode.', 'error');
+  }
+
+  selector.addEventListener('change', () => {
+    state.selectedTeam = selector.value;
+    localStorage.setItem('selectedTeam', selector.value);
+  });
+}
 
 async function init() {
   const status = await api('/api/auth/status').catch(() => ({ needsSetup: true }));
@@ -945,7 +1004,12 @@ function showAuth() {
   mainScreen.classList.add('hidden');
 }
 
-function showMain() {
+async function showMain() {
+  if (!hasValidToken()) {
+    showAuth();
+    return;
+  }
+
   authScreen.classList.add('hidden');
   mainScreen.classList.remove('hidden');
 
@@ -956,27 +1020,34 @@ function showMain() {
   } else if ('Notification' in window) {
     state.notificationsEnabled = Notification.permission === 'granted';
   }
-  loadCustomCommands();
 
-  // Fetch models now that we have a valid token
+  await loadCustomCommands();
+  if (!hasValidToken()) return;
+
   if (modelBtn && modelDropdown) {
-    fetchAndPopulateModels();
+    await fetchAndPopulateModels();
+    if (!hasValidToken()) return;
   }
 
-  restoreSessionState().then(async (restored) => {
-    if (!restored) {
-      await restoreFromHash();
-    }
-    connectWebSocket();
-    connectEventStream();
+  await initTeamSelector();
+  if (!hasValidToken()) return;
 
-    // After SSE is connecting, check if the active session is streaming.
-    // Small delay to let SSE establish before the attach call triggers replay.
-    const activeSession = getActiveSession();
-    if (activeSession && activeSession.sessionId) {
-      setTimeout(() => attachToActiveSession(activeSession), 1000);
-    }
-  });
+  const restored = await restoreSessionState();
+  if (!restored) {
+    await restoreFromHash();
+  }
+
+  if (!hasValidToken()) return;
+
+  connectWebSocket();
+  connectEventStream();
+
+  // After SSE is connecting, check if the active session is streaming.
+  // Small delay to let SSE establish before the attach call triggers replay.
+  const activeSession = getActiveSession();
+  if (activeSession && activeSession.sessionId) {
+    setTimeout(() => attachToActiveSession(activeSession), 1000);
+  }
 }
 
 async function restoreFromHash() {
@@ -1048,6 +1119,7 @@ function showAuthError(msg) {
 
 
 function connectWebSocket() {
+  if (!hasValidToken()) return;
   if (state.ws?.readyState === WebSocket.OPEN) return;
 
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -1071,6 +1143,8 @@ function connectWebSocket() {
 }
 
 function connectEventStream() {
+  if (!hasValidToken()) return;
+
   if (state.eventSource) {
     state.eventSource.close();
     state.eventSource = null;
@@ -2465,13 +2539,15 @@ function sendMessage(content) {
     console.warn('[Session] WARNING: Sending as new session but UI shows existing messages - possible context loss');
   }
 
+  const teamSelector = document.getElementById('team-selector');
   const message = {
     type: 'chat',
     content: content,
     model: state.selectedModel,
     projectPath: session.project.path,
     sessionId: session.sessionId,
-    isNewSession: !session.sessionId
+    isNewSession: !session.sessionId,
+    team: teamSelector ? teamSelector.value : state.selectedTeam
   };
 
   // Add attachments if present
