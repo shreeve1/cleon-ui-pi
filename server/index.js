@@ -25,6 +25,7 @@ import { replayBufferToSSE, replayBufferToCallback, hasActiveBuffer } from './br
 import { errorHandler, notFoundHandler } from './errors.js';
 import sdkSessionManager from './session-manager-instance.js';
 import { attachToCliSession, isWatching, stopAll as stopAllWatchers, checkLastMessageTurnState } from './session-watcher.js';
+import { loadTeams, getTeamRoster } from './teams.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -166,6 +167,33 @@ app.get('/api/models', authenticateToken, async (req, res) => {
   } catch (err) {
     logger.error('Error fetching models config', { error: err.message });
     res.status(500).json({ error: 'Failed to fetch models config' });
+  }
+});
+
+app.get('/api/teams', authenticateToken, async (req, res) => {
+  try {
+    const { teams } = await loadTeams();
+    const result = [];
+
+    for (const [name, memberNames] of Object.entries(teams || {})) {
+      const roster = await getTeamRoster(name);
+      const membersByName = new Map((roster?.members || []).map((m) => [String(m.name || '').toLowerCase(), m]));
+      result.push({
+        name,
+        members: (memberNames || []).map((memberName) => {
+          const def = membersByName.get(String(memberName || '').toLowerCase());
+          return {
+            name: def?.name || memberName,
+            description: def?.description || '',
+          };
+        }),
+      });
+    }
+
+    res.json(result);
+  } catch (err) {
+    logger.warn('Failed to load teams', { error: err.message });
+    res.json([]);
   }
 });
 
