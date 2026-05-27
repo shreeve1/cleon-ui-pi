@@ -2,6 +2,7 @@ module.exports = {
   apps: [
     {
       name: 'cleon-ui-pi',
+      cwd: __dirname,
       script: 'server/index.js',
       instances: 1,
       exec_mode: 'fork',
@@ -9,9 +10,7 @@ module.exports = {
       watch: false,
       max_memory_restart: '500M',
       env: {
-        NODE_ENV: 'production',
-        PORT: 3015,
-        HOST: '0.0.0.0'
+        NODE_ENV: 'production'
       },
       env_development: {
         NODE_ENV: 'development'

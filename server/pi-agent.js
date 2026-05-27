@@ -15,6 +15,14 @@ const TOOL_OUTPUT_TRUNCATE_LENGTH = 1500;
 const TOOL_SUMMARY_TRUNCATE_LENGTH = 200;
 const SUPPRESS_TOOL_DROP_NOTIFICATIONS = String(process.env.SUPPRESS_TOOL_DROP_NOTIFICATIONS || '').toLowerCase() === 'true';
 
+// Strip ANSI escape codes from text before sending to browser
+// Matches: ESC[ ... m (SGR), ESC[ ... (other CSI), ESC] ... BEL/ST (OSC)
+const ANSI_PATTERN = /\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[PX^_][^\x1b]*\x1b\\?/g;
+function stripAnsi(text) {
+  if (typeof text !== 'string') return text;
+  return text.replace(ANSI_PATTERN, '');
+}
+
 // NOTE: "Dropping unknown tool ..." PM2 logs are emitted by the Pi SDK's
 // internal claude-agent-bridge logger, not via AgentSessionEvent.
 // We cannot intercept those log lines directly unless the SDK exposes events.
@@ -174,7 +182,7 @@ function transformEvent(event, sessionId, sessionInfo) {
       if (ame.type === 'text_delta' && ame.delta) {
         return {
           type: 'text',
-          content: ame.delta,
+          content: stripAnsi(ame.delta),
           timestamp,
           messageId,
         };
