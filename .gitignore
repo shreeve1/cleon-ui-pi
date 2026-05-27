@@ -13,3 +13,5 @@ sessions/
 specs/
 research/
 artifacts/
+.pi-lens/
+.git-notes.md
