@@ -47,6 +47,8 @@ Key variables:
 - `JWT_SECRET` — Auth token secret (min 32 chars)
 - `ANTHROPIC_API_KEY` — API key for Pi agent (or configure in `~/.pi/agent/auth.json`)
 - `LOG_LEVEL` — Logging verbosity (debug/info/warn/error)
+- `SDK_MAX_CONCURRENT` — Cap on simultaneously-warm Pi `AgentSession`s (default: 50). When the cap is hit, the least-recently-active idle session is evicted silently.
+- `SDK_IDLE_TIMEOUT_MS` — Idle time before a pooled session is eligible for eviction (default: 600000 = 10 min).
 
 ### config/models.json
 

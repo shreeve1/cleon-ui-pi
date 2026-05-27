@@ -83,7 +83,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 LOG_LEVEL=info
 
 # Optional: Pi SDK session pool tuning
-# SDK_MAX_CONCURRENT=10
+# SDK_MAX_CONCURRENT=50
 # SDK_IDLE_TIMEOUT_MS=600000
 ```
 

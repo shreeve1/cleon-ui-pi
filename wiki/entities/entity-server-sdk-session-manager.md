@@ -20,7 +20,7 @@ Pool manager for persistent Pi SDK `AgentSession` objects. Lazy-loads sessions o
 - Manage a pool of `AgentSession` objects keyed by `sessionId`.
 - Persist `projectPath:sessionId → sessionFile` mappings to `~/.pi/agent/cleon-sessions.json`.
 - Discover CLI-created sessions via filesystem scan of `~/.pi/agent/sessions/<safePath>/*.jsonl`.
-- Enforce concurrency cap (`SDK_MAX_CONCURRENT`, default 10) by evicting oldest idle session.
+- Enforce concurrency cap (`SDK_MAX_CONCURRENT`, default 50) by evicting oldest idle session.
 - Time out idle sessions (`SDK_IDLE_TIMEOUT_MS`, default 10 minutes) via per-entry `idleTimer` plus a 60 s cleanup sweep.
 
 ## Public surface

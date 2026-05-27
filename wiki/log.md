@@ -115,3 +115,10 @@ Append entries with this format:
   - **Held in candidate queue**: `source-design-plans-history.md` and `source-specs-catalog.md` — medium confidence, "historical catalog" label. These are intentionally retained as candidates because they catalog superseded/partial work and should not enter the promoted layer without an explicit decision.
   - **Pi-migration-residue findings (5 items)** captured out-of-band in `/tmp/handoff-vjfV27.md` per James's direction — kept out of the wiki to avoid clutter. Findings #2 (PI_BINARY) and the README rewrite appear to have been actioned by a parallel session already (README updated, `.env.example` and `public/app.js` show in `git status`).
   - Promoted layer now contains 3 sources, 3 entities, 0 concepts, 1 analysis.
+
+## [2026-05-27] reconcile | SDK_MAX_CONCURRENT default 10 → 50
+
+- Actor: Claude Code (wiki maintenance before follow-up commit)
+- Inputs: live `server/sdk-session-manager.js:15` (default bumped 10 → 50 in working tree), `CLAUDE.md` (already updated to document 50), `README.md` (sample bumped 10 → 50)
+- Outputs: `C-0025` updated in `wiki/CLAIMS.md` (default 50; source field retargeted to live code path; note records the drift from the immutable ingest snapshot); `wiki/entities/entity-server-sdk-session-manager.md` line 23 updated to "default 50"
+- Notes: The original ingest raw `wiki/raw/code/server-sdk-session-manager.js` still shows 10 (immutable per skill rules). The underlying code change in `server/sdk-session-manager.js` is uncommitted in the working tree and is not part of this follow-up commit — it will land separately when that code change is committed. The wiki temporarily leads committed code by one default-value step.
