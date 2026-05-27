@@ -1,7 +1,7 @@
 ---
 title: Entity — server/index.js
 type: entity
-status: candidate
+status: promoted
 created: 2026-05-27
 updated: 2026-05-27
 sources:
@@ -71,6 +71,6 @@ Entry point (`#!/usr/bin/env node`) for the Cleon UI Pi backend. Boots Express H
 ## Cross-references
 
 - Auth flow → `server/auth.js`.
-- Session lifecycle → `wiki/candidates/entity-server-sdk-session-manager.md`.
-- Chat dispatch → `wiki/candidates/entity-server-pi-agent.md`.
+- Session lifecycle → `wiki/entities/entity-server-sdk-session-manager.md`.
+- Chat dispatch → `wiki/entities/entity-server-pi-agent.md`.
 - Sync-bug fixes that landed here → `wiki/candidates/analysis-session-sync-bugs.md`.

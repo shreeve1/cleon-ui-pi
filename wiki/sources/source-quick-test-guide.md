@@ -1,7 +1,7 @@
 ---
 title: Source Summary — QUICK_TEST_GUIDE.md
 type: source-summary
-status: candidate
+status: promoted
 created: 2026-05-27
 updated: 2026-05-27
 sources:

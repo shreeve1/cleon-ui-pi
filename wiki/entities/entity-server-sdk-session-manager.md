@@ -1,7 +1,7 @@
 ---
 title: Entity — server/sdk-session-manager.js
 type: entity
-status: candidate
+status: promoted
 created: 2026-05-27
 updated: 2026-05-27
 sources:
@@ -80,6 +80,6 @@ Pool manager for persistent Pi SDK `AgentSession` objects. Lazy-loads sessions o
 
 ## Cross-references
 
-- Transaction layer → `wiki/candidates/entity-server-pi-agent.md`.
-- Boot sequencing → `wiki/candidates/entity-server-index.md`.
+- Transaction layer → `wiki/entities/entity-server-pi-agent.md`.
+- Boot sequencing → `wiki/entities/entity-server-index.md`.
 - Session-file persistence record → `wiki/sources/source-claude-md.md` (claim `C-0008`).

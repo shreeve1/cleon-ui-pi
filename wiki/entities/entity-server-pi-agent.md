@@ -1,7 +1,7 @@
 ---
 title: Entity — server/pi-agent.js
 type: entity
-status: candidate
+status: promoted
 created: 2026-05-27
 updated: 2026-05-27
 sources:
@@ -75,6 +75,6 @@ Pi SDK transaction handler. Receives WebSocket chat messages, fetches/creates a 
 
 ## Cross-references
 
-- Session pool lifecycle → `wiki/candidates/entity-server-sdk-session-manager.md`.
-- Dispatch from WebSocket → `wiki/candidates/entity-server-index.md`.
+- Session pool lifecycle → `wiki/entities/entity-server-sdk-session-manager.md`.
+- Dispatch from WebSocket → `wiki/entities/entity-server-index.md`.
 - Model dropdown history → `wiki/candidates/source-design-plans-history.md`.

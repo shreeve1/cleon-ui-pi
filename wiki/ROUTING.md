@@ -7,38 +7,38 @@ Use this file after reading `index.md` when narrowing a wiki-backed question to 
 - Pages:
   - `wiki/sources/source-claude-md.md`
   - `wiki/sources/source-readme.md`
-  - `wiki/candidates/entity-server-index.md` (candidate)
-  - `wiki/candidates/source-quick-test-guide.md` (candidate)
+  - `wiki/entities/entity-server-index.md`
+  - `wiki/sources/source-quick-test-guide.md`
 - Keywords: PM2, ecosystem.config.cjs, EADDRINUSE, port conflict, restart, crash loop, logs, pm2 delete, npm run pm2, graceful shutdown, kill_timeout, rate limit
 
 ## CORS & Networking
 
 - Pages:
   - `wiki/sources/source-claude-md.md`
-  - `wiki/candidates/entity-server-index.md` (candidate)
+  - `wiki/entities/entity-server-index.md`
 - Keywords: ALLOWED_ORIGINS, CORS, WebSocket, origin, whitelist, pi.testytech.net, 3015, helmet, CSP, private IP bypass, SSE heartbeat
 
 ## Environment & Config
 
 - Pages:
   - `wiki/sources/source-claude-md.md`
-  - `wiki/candidates/entity-server-index.md` (candidate)
+  - `wiki/entities/entity-server-index.md`
 - Keywords: .env, dotenv override, PORT, HOST, JWT_SECRET, ANTHROPIC_API_KEY, LOG_LEVEL, shell env override, SDK_MAX_CONCURRENT, SDK_IDLE_TIMEOUT_MS
 
 ## Pi SDK Integration
 
 - Pages:
   - `wiki/sources/source-claude-md.md`
-  - `wiki/candidates/entity-server-pi-agent.md` (candidate)
-  - `wiki/candidates/entity-server-sdk-session-manager.md` (candidate)
+  - `wiki/entities/entity-server-pi-agent.md`
+  - `wiki/entities/entity-server-sdk-session-manager.md`
   - `wiki/candidates/source-design-plans-history.md` (candidate — OMP→Pi migration history)
 - Keywords: pi-agent.js, sdk-session-manager.js, @mariozechner/pi-coding-agent, cleon-sessions.json, stripAnsi, model registry, ~/.pi/agent/, AgentSession, session.prompt, toolCallId, set_model
 
 ## Auth & Sessions
 
 - Pages:
-  - `wiki/candidates/entity-server-sdk-session-manager.md` (candidate)
-  - `wiki/candidates/entity-server-pi-agent.md` (candidate)
+  - `wiki/entities/entity-server-sdk-session-manager.md`
+  - `wiki/entities/entity-server-pi-agent.md`
   - `wiki/analyses/analysis-session-sync-bugs.md`
 - Keywords: JWT, bcrypt, auth.js, session lifecycle, better-sqlite3, ~/.cleon-ui/, session pool, idle timeout, MAX_CONCURRENT, session-registry, attach, state-snapshot
 
@@ -54,7 +54,7 @@ Use this file after reading `index.md` when narrowing a wiki-backed question to 
 
 - Pages:
   - `wiki/sources/source-claude-md.md`
-  - `wiki/candidates/entity-server-index.md` (candidate)
+  - `wiki/entities/entity-server-index.md`
   - `wiki/candidates/source-design-plans-history.md` (candidate — OMP→Pi migration)
 - Keywords: Express, WebSocket, SSE, streaming, ecosystem.config.cjs, cwd portability, helmet, multer, rate-limit, Pi RPC migration
 
@@ -62,7 +62,7 @@ Use this file after reading `index.md` when narrowing a wiki-backed question to 
 
 - Pages:
   - `wiki/analyses/analysis-session-sync-bugs.md`
-  - `wiki/candidates/source-quick-test-guide.md` (candidate — regression-test checklist)
+  - `wiki/sources/source-quick-test-guide.md`
 - Keywords: bugfix, session tab deletion, sync bugs, multi-tab broadcast, publish, session-closed, session-created, auto-adopt, dual source of truth, regression
 
 ## Historical / Project Genealogy

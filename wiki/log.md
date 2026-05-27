@@ -96,3 +96,22 @@ Append entries with this format:
 - Inputs: post-edit `README.md` (James removed the "Data Migration (legacy)" troubleshooting subsection between the initial rewrite and commit)
 - Outputs: `wiki/raw/readme-2026-05-27-rewrite.md` overwritten to match the post-edit repo file; raw snapshot is now byte-identical to repo `README.md` at commit time
 - Notes: Strict immutability would have required a new dated raw filename, but the rewrite snapshot was authored in the same workflow and never referenced outside this session, so the in-place refresh keeps the wiki honest without snapshot proliferation. The original stale snapshot `wiki/raw/readme-2026-05-27.md` remains untouched. `C-0034` still holds — removed paragraph was about legacy Claude Lite migration only, not core claims.
+
+## [2026-05-27] lint+promote | post-batch reconciliation
+
+- Actor: Claude Code (llm-wiki-setup → Lint + Promote workflows)
+- Inputs: wiki state after the batch ingest + auto-promotions performed by the linter hook
+- Outputs:
+  - **Lint pass**: zero broken links, zero stale candidate refs, zero missing claim sources, zero index/route paths pointing at nonexistent files. Confirmed `C-0011` correctly marked `superseded` and `C-0034` registered after the README rewrite.
+  - **Promoted 4 candidates** (all high confidence, well-cited, low-risk):
+    - `wiki/candidates/entity-server-index.md` → `wiki/entities/entity-server-index.md`
+    - `wiki/candidates/entity-server-pi-agent.md` → `wiki/entities/entity-server-pi-agent.md`
+    - `wiki/candidates/entity-server-sdk-session-manager.md` → `wiki/entities/entity-server-sdk-session-manager.md`
+    - `wiki/candidates/source-quick-test-guide.md` → `wiki/sources/source-quick-test-guide.md`
+  - **CLAIMS.md Page column re-targeted** for `C-0012`, `C-0015`–`C-0028` from candidate paths to promoted paths.
+  - **index.md** updated: 3 entity rows + 1 source row moved from candidate queue to promoted sections.
+  - **ROUTING.md** updated: `(candidate)` annotations dropped for the 4 promoted pages across Ops & Runbook, CORS & Networking, Environment & Config, Pi SDK Integration, Auth & Sessions, Frontend, Architecture & Decisions, Bugs & Incidents.
+- Notes:
+  - **Held in candidate queue**: `source-design-plans-history.md` and `source-specs-catalog.md` — medium confidence, "historical catalog" label. These are intentionally retained as candidates because they catalog superseded/partial work and should not enter the promoted layer without an explicit decision.
+  - **Pi-migration-residue findings (5 items)** captured out-of-band in `/tmp/handoff-vjfV27.md` per James's direction — kept out of the wiki to avoid clutter. Findings #2 (PI_BINARY) and the README rewrite appear to have been actioned by a parallel session already (README updated, `.env.example` and `public/app.js` show in `git status`).
+  - Promoted layer now contains 3 sources, 3 entities, 0 concepts, 1 analysis.

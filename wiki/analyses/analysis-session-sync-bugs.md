@@ -56,7 +56,7 @@ The pattern already existed in `pi-agent.js` for streaming/turn updates; the ses
 
 ## Regression guard
 
-Re-run `wiki/candidates/source-quick-test-guide.md` after any change to:
+Re-run `wiki/sources/source-quick-test-guide.md` after any change to:
 
 - `server/index.js` WebSocket dispatcher or `close-session` handler.
 - `server/pi-agent.js` `sendMessage()` or session-creation flow.
@@ -69,6 +69,6 @@ Re-run `wiki/candidates/source-quick-test-guide.md` after any change to:
 
 ## Cross-references
 
-- Test plan → `wiki/candidates/source-quick-test-guide.md`.
-- WebSocket dispatcher → `wiki/candidates/entity-server-index.md`.
-- Session-create broadcast → `wiki/candidates/entity-server-pi-agent.md`.
+- Test plan → `wiki/sources/source-quick-test-guide.md`.
+- WebSocket dispatcher → `wiki/entities/entity-server-index.md`.
+- Session-create broadcast → `wiki/entities/entity-server-pi-agent.md`.
