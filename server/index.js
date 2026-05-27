@@ -25,7 +25,6 @@ import { replayBufferToSSE, replayBufferToCallback, hasActiveBuffer } from './br
 import { errorHandler, notFoundHandler } from './errors.js';
 import sdkSessionManager from './session-manager-instance.js';
 import { attachToCliSession, isWatching, stopAll as stopAllWatchers, checkLastMessageTurnState } from './session-watcher.js';
-import { loadTeams, getTeamRoster } from './teams.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -51,16 +50,28 @@ app.use(helmet({
 }));
 
 // CORS configuration
+function normalizeOrigin(origin) {
+  try {
+    return new URL(origin).origin;
+  } catch {
+    return String(origin || '').trim().replace(/\/+$/, '');
+  }
+}
+
 const configuredOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',')
+  ? process.env.ALLOWED_ORIGINS
+      .split(',')
+      .map((origin) => normalizeOrigin(origin))
+      .filter(Boolean)
   : [];
 
 function isAllowedOrigin(origin) {
   if (!origin) return true; // Same-origin, Postman, mobile apps
-  if (configuredOrigins.includes(origin)) return true;
+  const normalizedOrigin = normalizeOrigin(origin);
+  if (configuredOrigins.includes(normalizedOrigin)) return true;
   // Always allow local development
   try {
-    const url = new URL(origin);
+    const url = new URL(normalizedOrigin);
     const hostname = url.hostname;
     if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
     // Allow local network IPs (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
@@ -167,33 +178,6 @@ app.get('/api/models', authenticateToken, async (req, res) => {
   } catch (err) {
     logger.error('Error fetching models config', { error: err.message });
     res.status(500).json({ error: 'Failed to fetch models config' });
-  }
-});
-
-app.get('/api/teams', authenticateToken, async (req, res) => {
-  try {
-    const { teams } = await loadTeams();
-    const result = [];
-
-    for (const [name, memberNames] of Object.entries(teams || {})) {
-      const roster = await getTeamRoster(name);
-      const membersByName = new Map((roster?.members || []).map((m) => [String(m.name || '').toLowerCase(), m]));
-      result.push({
-        name,
-        members: (memberNames || []).map((memberName) => {
-          const def = membersByName.get(String(memberName || '').toLowerCase());
-          return {
-            name: def?.name || memberName,
-            description: def?.description || '',
-          };
-        }),
-      });
-    }
-
-    res.json(result);
-  } catch (err) {
-    logger.warn('Failed to load teams', { error: err.message });
-    res.json([]);
   }
 });
 

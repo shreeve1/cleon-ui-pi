@@ -9,7 +9,6 @@ import { createActivityTracker } from './activity.js';
 import { register, setStatus } from './session-registry.js';
 import { getSdkSessionManager } from './session-manager-instance.js';
 import { createExtensionUIBridge } from './extension-ui-bridge.js';
-import { createDispatcherSession } from './dispatch-agent.js';
 
 // Constants
 const TOOL_OUTPUT_TRUNCATE_LENGTH = 1500;
@@ -447,7 +446,7 @@ function transformEvent(event, sessionId, sessionInfo) {
  * Handle incoming chat message from WebSocket.
  */
 export async function handleChat(msg, ws, username) {
-  const { content, projectPath, sessionId, isNewSession, attachments, team } = msg;
+  const { content, projectPath, sessionId, isNewSession, attachments } = msg;
   const projectDisplayName = projectPath ? projectPath.split('/').pop() : '';
   const piProjectName = projectPath ? ('--' + projectPath.slice(1).replace(/\//g, '-') + '--') : projectDisplayName;
 
@@ -503,18 +502,7 @@ export async function handleChat(msg, ws, username) {
 
     // Get or create persistent SDK session
     const manager = getSdkSessionManager();
-    let sessionBundle;
-
-    if (team && team !== 'none') {
-      const dispatcherConfig = await createDispatcherSession(team, projectPath);
-      if (typeof manager.getOrCreateTeamSession === 'function') {
-        sessionBundle = await manager.getOrCreateTeamSession(currentSessionId, projectPath, username, dispatcherConfig);
-      } else {
-        sessionBundle = await manager.getOrCreate(currentSessionId, projectPath, username);
-      }
-    } else {
-      sessionBundle = await manager.getOrCreate(currentSessionId, projectPath, username);
-    }
+    const sessionBundle = await manager.getOrCreate(currentSessionId, projectPath, username);
 
     const { session, sessionFile, isNew } = sessionBundle;
     sessionInfo.session = session;

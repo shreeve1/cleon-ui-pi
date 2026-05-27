@@ -42,7 +42,6 @@ const state = {
   selectedModel: localStorage.getItem('selectedModel') || null,
   availableModels: [],
   defaultModel: null,
-  selectedTeam: localStorage.getItem('selectedTeam') || 'none',
 };
 
 // Session object factory
@@ -935,55 +934,6 @@ async function loadCustomCommands(projectPath = null) {
 }
 
 
-async function initTeamSelector() {
-  const selector = document.getElementById('team-selector');
-  if (!selector) return;
-
-  if (!hasValidToken()) return;
-
-  const savedTeam = localStorage.getItem('selectedTeam');
-
-  try {
-    const response = await fetch('/api/teams', {
-      headers: { 'Authorization': `Bearer ${state.token}` }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to load teams: ${response.status}`);
-    }
-
-    const teams = await response.json();
-
-    selector.innerHTML = '<option value="none">No team (direct)</option>';
-    teams.forEach(team => {
-      const option = document.createElement('option');
-      option.value = team.name;
-      option.textContent = team.name;
-      selector.appendChild(option);
-    });
-
-    if (savedTeam && teams.find(t => t.name === savedTeam)) {
-      selector.value = savedTeam;
-    } else if (teams.find(t => t.name === 'full')) {
-      selector.value = 'full';
-    } else {
-      selector.value = 'none';
-    }
-
-    state.selectedTeam = selector.value;
-  } catch (error) {
-    console.error('Failed to load teams:', error);
-    selector.value = 'none';
-    state.selectedTeam = 'none';
-    showToast('Failed to load teams. Falling back to direct mode.', 'error');
-  }
-
-  selector.addEventListener('change', () => {
-    state.selectedTeam = selector.value;
-    localStorage.setItem('selectedTeam', selector.value);
-  });
-}
-
 async function init() {
   const status = await api('/api/auth/status').catch(() => ({ needsSetup: true }));
   
@@ -1028,9 +978,6 @@ async function showMain() {
     await fetchAndPopulateModels();
     if (!hasValidToken()) return;
   }
-
-  await initTeamSelector();
-  if (!hasValidToken()) return;
 
   const restored = await restoreSessionState();
   if (!restored) {
@@ -2539,7 +2486,6 @@ function sendMessage(content) {
     console.warn('[Session] WARNING: Sending as new session but UI shows existing messages - possible context loss');
   }
 
-  const teamSelector = document.getElementById('team-selector');
   const message = {
     type: 'chat',
     content: content,
@@ -2547,7 +2493,6 @@ function sendMessage(content) {
     projectPath: session.project.path,
     sessionId: session.sessionId,
     isNewSession: !session.sessionId,
-    team: teamSelector ? teamSelector.value : state.selectedTeam
   };
 
   // Add attachments if present

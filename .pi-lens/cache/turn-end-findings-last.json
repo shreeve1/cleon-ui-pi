@@ -1,0 +1,6 @@
+{
+  "signature": "server/index.js::Unresolved from this turn — server/index.js:\n🔴 STOP — 4 issue(s) must be fixed:\n  L25: 'notFoundHandler' is declared but its value is never read.\n    💡 Fix: Remove the unused declaration or rename with '_' prefix if intentionally unused.\n  L153: 'req' is declared but its value is never read.\n    💡 Fix: Remove the unused declaration or rename with '_' prefix if intentionally unused.\n  L175: 'req' is declared but its value is never read.\n    💡 Fix: Remove the unused declaration or rename with '_' prefix if intentionally unused.\n  L185: 'req' is declared but its value is never read.\n    💡 Fix: Remove the unused declaration or rename with '_' prefix if intentionally unused.",
+  "sessionId": "lens-mpnkfqxr-e8f1caf4",
+  "projectSeqStart": 4,
+  "projectSeqEnd": 6
+}

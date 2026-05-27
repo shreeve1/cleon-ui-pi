@@ -1912,44 +1912,6 @@ body::after {
   opacity: 1;
 }
 
-/* Team selector */
-.team-selector {
-  height: 36px;
-  padding: 0 34px 0 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background-color: var(--bg-light);
-  color: var(--text-dim);
-  font-size: 13px;
-  font-weight: 500;
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238b85a0' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.team-selector:hover {
-  border-color: var(--neon-cyan);
-  color: var(--text);
-  background-color: var(--bg-hover);
-}
-
-.team-selector:focus-visible {
-  outline: none;
-  border-color: var(--neon-cyan);
-  color: var(--text);
-  box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.18), 0 0 12px rgba(0, 240, 255, 0.2);
-}
-
-.team-selector option {
-  background: var(--bg-light);
-  color: var(--text);
-}
-
 /* Model dropdown menu */
 #model-dropdown {
   position: absolute;

@@ -7,10 +7,10 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
-    "pm2": "pm2 delete cleon-ui 2>/dev/null; pm2 start ecosystem.config.cjs",
-    "pm2:restart": "pm2 delete cleon-ui 2>/dev/null; pm2 start ecosystem.config.cjs",
-    "pm2:stop": "pm2 stop cleon-ui",
-    "pm2:logs": "pm2 logs cleon-ui",
+    "pm2": "pm2 startOrRestart ecosystem.config.cjs --only cleon-ui-pi --update-env && pm2 save",
+    "pm2:restart": "pm2 restart cleon-ui-pi --update-env && pm2 save",
+    "pm2:stop": "pm2 stop cleon-ui-pi",
+    "pm2:logs": "pm2 logs cleon-ui-pi",
     "test": "vitest run"
   },
   "dependencies": {
@@ -27,7 +27,6 @@
     "monaco-editor": "^0.45.0",
     "multer": "^2.0.2",
     "pdf-parse": "^2.4.5",
-    "puppeteer": "^19.8.0",
     "winston": "^3.19.0",
     "ws": "^8.14.2"
   },

@@ -1,0 +1,447 @@
+{
+  "success": true,
+  "issues": [
+    {
+      "type": "file",
+      "name": "ecosystem.config.cjs",
+      "file": "ecosystem.config.cjs"
+    },
+    {
+      "type": "file",
+      "name": "test-session-context.js",
+      "file": "test-session-context.js"
+    },
+    {
+      "type": "file",
+      "name": "test-session-mobile.js",
+      "file": "test-session-mobile.js"
+    },
+    {
+      "type": "file",
+      "name": "public/app.js",
+      "file": "public/app.js"
+    },
+    {
+      "type": "file",
+      "name": "server/validation.js",
+      "file": "server/validation.js"
+    },
+    {
+      "type": "dependency",
+      "name": "monaco-editor",
+      "file": "package.json",
+      "line": 27
+    },
+    {
+      "type": "devDependency",
+      "name": "@playwright/test",
+      "file": "package.json",
+      "line": 34
+    },
+    {
+      "type": "devDependency",
+      "name": "playwright",
+      "file": "package.json",
+      "line": 35
+    },
+    {
+      "type": "export",
+      "name": "resubscribeSession",
+      "file": "server/pi-agent.js",
+      "line": 743
+    },
+    {
+      "type": "export",
+      "name": "_transformEvent",
+      "file": "server/pi-agent.js",
+      "line": 777
+    },
+    {
+      "type": "export",
+      "name": "getProjectCommands",
+      "file": "server/commands.js",
+      "line": 92
+    },
+    {
+      "type": "export",
+      "name": "getProjectSkills",
+      "file": "server/commands.js",
+      "line": 105
+    },
+    {
+      "type": "export",
+      "name": "getPiSkills",
+      "file": "server/commands.js",
+      "line": 160
+    },
+    {
+      "type": "export",
+      "name": "getPiPrompts",
+      "file": "server/commands.js",
+      "line": 170
+    },
+    {
+      "type": "export",
+      "name": "getSubscriberCount",
+      "file": "server/bus.js",
+      "line": 65
+    },
+    {
+      "type": "export",
+      "name": "restoreAll",
+      "file": "server/session-registry.js",
+      "line": 139
+    },
+    {
+      "type": "export",
+      "name": "replayBufferToClient",
+      "file": "server/broadcast.js",
+      "line": 91
+    },
+    {
+      "type": "export",
+      "name": "getBufferStats",
+      "file": "server/broadcast.js",
+      "line": 180
+    },
+    {
+      "type": "export",
+      "name": "AppError",
+      "file": "server/errors.js",
+      "line": 13
+    },
+    {
+      "type": "export",
+      "name": "ValidationError",
+      "file": "server/errors.js",
+      "line": 26
+    },
+    {
+      "type": "export",
+      "name": "AuthenticationError",
+      "file": "server/errors.js",
+      "line": 36
+    },
+    {
+      "type": "export",
+      "name": "AuthorizationError",
+      "file": "server/errors.js",
+      "line": 45
+    },
+    {
+      "type": "export",
+      "name": "NotFoundError",
+      "file": "server/errors.js",
+      "line": 54
+    },
+    {
+      "type": "export",
+      "name": "ConflictError",
+      "file": "server/errors.js",
+      "line": 63
+    },
+    {
+      "type": "export",
+      "name": "RateLimitError",
+      "file": "server/errors.js",
+      "line": 72
+    },
+    {
+      "type": "export",
+      "name": "asyncHandler",
+      "file": "server/errors.js",
+      "line": 90
+    },
+    {
+      "type": "export",
+      "name": "requireResource",
+      "file": "server/errors.js",
+      "line": 180
+    },
+    {
+      "type": "export",
+      "name": "requireAuth",
+      "file": "server/errors.js",
+      "line": 193
+    },
+    {
+      "type": "export",
+      "name": "requirePermission",
+      "file": "server/errors.js",
+      "line": 205
+    },
+    {
+      "type": "export",
+      "name": "loadAgentDefinition",
+      "file": "server/teams.js",
+      "line": 83
+    },
+    {
+      "type": "export",
+      "name": "trackTaskStart",
+      "file": "server/tasks.js",
+      "line": 26
+    },
+    {
+      "type": "export",
+      "name": "trackTaskComplete",
+      "file": "server/tasks.js",
+      "line": 50
+    },
+    {
+      "type": "export",
+      "name": "trackTaskFailed",
+      "file": "server/tasks.js",
+      "line": 71
+    },
+    {
+      "type": "export",
+      "name": "getTask",
+      "file": "server/tasks.js",
+      "line": 91
+    },
+    {
+      "type": "export",
+      "name": "clearSession",
+      "file": "server/tasks.js",
+      "line": 101
+    },
+    {
+      "type": "export",
+      "name": "getSessionTasks",
+      "file": "server/tasks.js",
+      "line": 153
+    },
+    {
+      "type": "export",
+      "name": "default",
+      "file": "server/sdk-session-manager.js",
+      "line": 447
+    }
+  ],
+  "unusedExports": [
+    {
+      "type": "export",
+      "name": "resubscribeSession",
+      "file": "server/pi-agent.js",
+      "line": 743
+    },
+    {
+      "type": "export",
+      "name": "_transformEvent",
+      "file": "server/pi-agent.js",
+      "line": 777
+    },
+    {
+      "type": "export",
+      "name": "getProjectCommands",
+      "file": "server/commands.js",
+      "line": 92
+    },
+    {
+      "type": "export",
+      "name": "getProjectSkills",
+      "file": "server/commands.js",
+      "line": 105
+    },
+    {
+      "type": "export",
+      "name": "getPiSkills",
+      "file": "server/commands.js",
+      "line": 160
+    },
+    {
+      "type": "export",
+      "name": "getPiPrompts",
+      "file": "server/commands.js",
+      "line": 170
+    },
+    {
+      "type": "export",
+      "name": "getSubscriberCount",
+      "file": "server/bus.js",
+      "line": 65
+    },
+    {
+      "type": "export",
+      "name": "restoreAll",
+      "file": "server/session-registry.js",
+      "line": 139
+    },
+    {
+      "type": "export",
+      "name": "replayBufferToClient",
+      "file": "server/broadcast.js",
+      "line": 91
+    },
+    {
+      "type": "export",
+      "name": "getBufferStats",
+      "file": "server/broadcast.js",
+      "line": 180
+    },
+    {
+      "type": "export",
+      "name": "AppError",
+      "file": "server/errors.js",
+      "line": 13
+    },
+    {
+      "type": "export",
+      "name": "ValidationError",
+      "file": "server/errors.js",
+      "line": 26
+    },
+    {
+      "type": "export",
+      "name": "AuthenticationError",
+      "file": "server/errors.js",
+      "line": 36
+    },
+    {
+      "type": "export",
+      "name": "AuthorizationError",
+      "file": "server/errors.js",
+      "line": 45
+    },
+    {
+      "type": "export",
+      "name": "NotFoundError",
+      "file": "server/errors.js",
+      "line": 54
+    },
+    {
+      "type": "export",
+      "name": "ConflictError",
+      "file": "server/errors.js",
+      "line": 63
+    },
+    {
+      "type": "export",
+      "name": "RateLimitError",
+      "file": "server/errors.js",
+      "line": 72
+    },
+    {
+      "type": "export",
+      "name": "asyncHandler",
+      "file": "server/errors.js",
+      "line": 90
+    },
+    {
+      "type": "export",
+      "name": "requireResource",
+      "file": "server/errors.js",
+      "line": 180
+    },
+    {
+      "type": "export",
+      "name": "requireAuth",
+      "file": "server/errors.js",
+      "line": 193
+    },
+    {
+      "type": "export",
+      "name": "requirePermission",
+      "file": "server/errors.js",
+      "line": 205
+    },
+    {
+      "type": "export",
+      "name": "loadAgentDefinition",
+      "file": "server/teams.js",
+      "line": 83
+    },
+    {
+      "type": "export",
+      "name": "trackTaskStart",
+      "file": "server/tasks.js",
+      "line": 26
+    },
+    {
+      "type": "export",
+      "name": "trackTaskComplete",
+      "file": "server/tasks.js",
+      "line": 50
+    },
+    {
+      "type": "export",
+      "name": "trackTaskFailed",
+      "file": "server/tasks.js",
+      "line": 71
+    },
+    {
+      "type": "export",
+      "name": "getTask",
+      "file": "server/tasks.js",
+      "line": 91
+    },
+    {
+      "type": "export",
+      "name": "clearSession",
+      "file": "server/tasks.js",
+      "line": 101
+    },
+    {
+      "type": "export",
+      "name": "getSessionTasks",
+      "file": "server/tasks.js",
+      "line": 153
+    },
+    {
+      "type": "export",
+      "name": "default",
+      "file": "server/sdk-session-manager.js",
+      "line": 447
+    }
+  ],
+  "unusedFiles": [
+    {
+      "type": "file",
+      "name": "ecosystem.config.cjs",
+      "file": "ecosystem.config.cjs"
+    },
+    {
+      "type": "file",
+      "name": "test-session-context.js",
+      "file": "test-session-context.js"
+    },
+    {
+      "type": "file",
+      "name": "test-session-mobile.js",
+      "file": "test-session-mobile.js"
+    },
+    {
+      "type": "file",
+      "name": "public/app.js",
+      "file": "public/app.js"
+    },
+    {
+      "type": "file",
+      "name": "server/validation.js",
+      "file": "server/validation.js"
+    }
+  ],
+  "unusedDeps": [
+    {
+      "type": "dependency",
+      "name": "monaco-editor",
+      "file": "package.json",
+      "line": 27
+    },
+    {
+      "type": "devDependency",
+      "name": "@playwright/test",
+      "file": "package.json",
+      "line": 34
+    },
+    {
+      "type": "devDependency",
+      "name": "playwright",
+      "file": "package.json",
+      "line": 35
+    }
+  ],
+  "unlistedDeps": [],
+  "summary": "Found 37 issues"
+}
