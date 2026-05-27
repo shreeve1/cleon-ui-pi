@@ -1,0 +1,447 @@
+import { promises as fs } from 'fs';
+import path from 'path';
+import os from 'os';
+import { createAgentSession, SessionManager } from '@mariozechner/pi-coding-agent';
+
+// ─── Constants ──────────────────────────────────────────────────────
+
+const IDLE_TIMEOUT_MS = parseInt(process.env.SDK_IDLE_TIMEOUT_MS, 10) || 10 * 60 * 1000; // 10 min
+const CLEANUP_INTERVAL_MS = 60_000; // 60s
+const MAX_CONCURRENT = parseInt(process.env.SDK_MAX_CONCURRENT, 10) || 10;
+const SESSIONS_FILE = path.join(os.homedir(), '.pi', 'agent', 'cleon-sessions.json');
+
+// ─── SdkSessionManager ─────────────────────────────────────────────
+
+/**
+ * Manages long-lived AgentSession objects keyed by session ID.
+ *
+ * Each entry in the sessions Map:
+ *   {
+ *     session: AgentSession,
+ *     sessionManager: SessionManager,       // Pi SDK session manager (file persistence)
+ *     sessionFile: string | null,
+ *     projectPath: string,
+ *     username: string,
+ *     lastActivity: Date,
+ *     idleTimer: NodeJS.Timeout | null,
+ *   }
+ *
+ * Session IDs are scoped to projects to prevent context leakage.
+ * The internal key format for the persistent map is: "${projectPath}:${sessionId}"
+ */
+class SdkSessionManager {
+  /** @type {Map<string, object>} Live in-memory sessions */
+  #sessions = new Map();
+
+  /** @type {Map<string, string>} Persistent projectPath:sessionId → sessionFile mapping */
+  #sessionFileMap = new Map();
+
+  /** @type {Map<string, string>} Legacy sessionId → sessionFile mapping for backward compatibility */
+  #legacySessionFileMap = new Map();
+
+  /** @type {NodeJS.Timeout | null} */
+  #cleanupInterval = null;
+
+  /** @type {boolean} */
+  #started = false;
+
+  // ── Lifecycle ───────────────────────────────────────────────────
+
+  async start() {
+    if (this.#started) return;
+    this.#started = true;
+
+    await this.#loadSessionFileMap();
+
+    this.#cleanupInterval = setInterval(() => {
+      this.cleanup();
+    }, CLEANUP_INTERVAL_MS);
+
+    if (this.#cleanupInterval.unref) {
+      this.#cleanupInterval.unref();
+    }
+
+    console.log(`[SdkSessionManager] Started — ${this.#sessionFileMap.size} known sessions loaded, idle timeout ${IDLE_TIMEOUT_MS}ms, max concurrent ${MAX_CONCURRENT}`);
+  }
+
+  // ── Core API ────────────────────────────────────────────────────
+
+  /**
+   * Get or create an SDK session.
+   *
+   * @param {string} sessionId   Cleon UI session ID
+   * @param {string} projectPath Absolute path to the project directory
+   * @param {string} username    Owning user
+   * @returns {{ session: AgentSession, sessionFile: string|null, isNew: boolean }}
+   */
+  async getOrCreate(sessionId, projectPath, username) {
+    const projectKey = this.#makeKey(projectPath, sessionId);
+
+    // ── Case 1: Live session exists ──
+    const existing = this.#sessions.get(sessionId);
+    if (existing) {
+      // Verify project path matches
+      if (existing.projectPath !== projectPath) {
+        console.error(
+          `[SdkSessionManager] Session ${sessionId} project mismatch! ` +
+          `Live session is for "${existing.projectPath}" but requested for "${projectPath}". ` +
+          `Destroying incompatible session and creating new one.`
+        );
+        await this.destroy(sessionId);
+        // Fall through to create new session
+      } else {
+        existing.lastActivity = new Date();
+        this.#clearIdleTimer(existing);
+        console.log(`[SdkSessionManager] Reusing live session ${sessionId}`);
+        return { session: existing.session, sessionFile: existing.sessionFile, isNew: false };
+      }
+    }
+
+    // ── Determine session file (from persistent map or null for new) ──
+    let sessionFile = this.#sessionFileMap.get(projectKey) || null;
+
+    // Fall back to legacy map
+    if (!sessionFile) {
+      sessionFile = this.#legacySessionFileMap.get(sessionId) || null;
+      if (sessionFile) {
+        const legacyProjectPath = this.#extractProjectFromSessionFile(sessionFile);
+        if (legacyProjectPath && legacyProjectPath !== projectPath) {
+          console.warn(
+            `[SdkSessionManager] Legacy session ${sessionId} project mismatch. Treating as new session.`
+          );
+          sessionFile = null;
+        }
+      }
+    }
+
+    // ── Final fallback: scan Pi sessions directory for a matching CLI session file ──
+    // This handles the common case where a user starts a session in the CLI and then
+    // navigates to it in the web UI. The CLI session file is never registered in
+    // cleon-sessions.json, so we scan the Pi sessions directory directly.
+    // The Pi session file UUID (in the filename AND the header) matches the Cleon sessionId,
+    // so a filename-based scan is sufficient — no file reading required.
+    if (!sessionFile) {
+      sessionFile = await this.#findCliSessionFile(projectPath, sessionId);
+      if (sessionFile) {
+        // Cache it immediately so future requests skip the scan
+        this.#sessionFileMap.set(projectKey, sessionFile);
+        await this.#saveSessionFileMap();
+        console.log(`[SdkSessionManager] Session ${sessionId} — found CLI session file: ${sessionFile}`);
+      }
+    }
+
+    const isNew = !sessionFile;
+
+    // ── Enforce concurrency limit ──
+    if (this.#sessions.size >= MAX_CONCURRENT) {
+      const evicted = this.#evictOldestIdle();
+      if (!evicted) {
+        throw new Error(
+          `Max concurrent SDK sessions (${MAX_CONCURRENT}) reached. ` +
+          `Cannot create session ${sessionId}.`
+        );
+      }
+    }
+
+    // ── Create SDK session ──
+    let piSessionManager;
+    if (sessionFile) {
+      // Resume existing session from file
+      piSessionManager = SessionManager.open(sessionFile);
+    } else {
+      // Create new session for this project
+      piSessionManager = SessionManager.create(projectPath);
+    }
+
+    const { session } = await createAgentSession({
+      cwd: projectPath,
+      sessionManager: piSessionManager,
+    });
+
+    // Get the actual session file from the SDK
+    const actualSessionFile = session.sessionFile || null;
+    if (isNew && actualSessionFile) {
+      sessionFile = actualSessionFile;
+      this.#sessionFileMap.set(projectKey, sessionFile);
+      this.#legacySessionFileMap.delete(sessionId);
+      await this.#saveSessionFileMap();
+      console.log(`[SdkSessionManager] Session ${sessionId} file: ${sessionFile} (project: ${projectPath})`);
+    } else if (!isNew && actualSessionFile && actualSessionFile !== sessionFile) {
+      console.error(
+        `[SdkSessionManager] WARNING: Session ${sessionId} resume may have failed! ` +
+        `Expected: ${sessionFile}, Got: ${actualSessionFile}. Keeping original mapping.`
+      );
+    } else if (!isNew) {
+      console.log(`[SdkSessionManager] Session ${sessionId} resumed from ${sessionFile} (project: ${projectPath})`);
+    }
+
+    const entry = {
+      session,
+      sessionManager: piSessionManager,
+      sessionFile: sessionFile || actualSessionFile,
+      projectPath,
+      username,
+      lastActivity: new Date(),
+      idleTimer: null,
+    };
+
+    this.#sessions.set(sessionId, entry);
+    console.log(
+      `[SdkSessionManager] ${isNew ? 'Created new' : 'Resumed'} session ${sessionId} ` +
+      `(${this.#sessions.size}/${MAX_CONCURRENT} active)`
+    );
+
+    return { session, sessionFile: entry.sessionFile, isNew };
+  }
+
+  /**
+   * Get a live session by ID (or null).
+   */
+  get(sessionId) {
+    return this.#sessions.get(sessionId) || null;
+  }
+
+  /**
+   * Mark a session as idle and start its timeout.
+   */
+  release(sessionId) {
+    const entry = this.#sessions.get(sessionId);
+    if (!entry) return;
+
+    entry.lastActivity = new Date();
+    this.#clearIdleTimer(entry);
+
+    entry.idleTimer = setTimeout(() => {
+      console.log(`[SdkSessionManager] Session ${sessionId} idle timeout — destroying`);
+      this.destroy(sessionId);
+    }, IDLE_TIMEOUT_MS);
+
+    if (entry.idleTimer.unref) {
+      entry.idleTimer.unref();
+    }
+  }
+
+  /**
+   * Immediately dispose an AgentSession and remove the live entry.
+   * The persistent sessionId→sessionFile mapping is preserved.
+   */
+  async destroy(sessionId) {
+    const entry = this.#sessions.get(sessionId);
+    if (!entry) return;
+
+    this.#clearIdleTimer(entry);
+
+    try {
+      entry.session.dispose();
+    } catch (err) {
+      console.warn(`[SdkSessionManager] Error disposing session ${sessionId}:`, err.message);
+    }
+
+    this.#sessions.delete(sessionId);
+    console.log(`[SdkSessionManager] Destroyed session ${sessionId} (${this.#sessions.size}/${MAX_CONCURRENT} active)`);
+  }
+
+  /**
+   * Gracefully destroy all live sessions.
+   */
+  async destroyAll() {
+    console.log(`[SdkSessionManager] Destroying all ${this.#sessions.size} sessions`);
+
+    if (this.#cleanupInterval) {
+      clearInterval(this.#cleanupInterval);
+      this.#cleanupInterval = null;
+    }
+
+    const destroyPromises = [];
+    for (const sessionId of this.#sessions.keys()) {
+      destroyPromises.push(this.destroy(sessionId));
+    }
+    await Promise.allSettled(destroyPromises);
+
+    this.#started = false;
+    console.log('[SdkSessionManager] All sessions destroyed');
+  }
+
+  /**
+   * Get the Pi session file path for a given session ID (from persistent map).
+   */
+  getSessionFile(sessionId, projectPath = null) {
+    if (projectPath) {
+      const projectKey = this.#makeKey(projectPath, sessionId);
+      const file = this.#sessionFileMap.get(projectKey);
+      if (file) return file;
+    }
+
+    for (const [key, value] of this.#sessionFileMap) {
+      if (key.endsWith(`:${sessionId}`)) {
+        return value;
+      }
+    }
+
+    return this.#legacySessionFileMap.get(sessionId) || null;
+  }
+
+  /**
+   * Cleanup idle sessions that have exceeded the timeout.
+   */
+  cleanup() {
+    const now = Date.now();
+    let cleaned = 0;
+
+    for (const [sessionId, entry] of this.#sessions) {
+      const idleMs = now - entry.lastActivity.getTime();
+
+      if (idleMs > IDLE_TIMEOUT_MS && !entry.idleTimer) {
+        console.log(`[SdkSessionManager] Cleanup: session ${sessionId} idle for ${Math.round(idleMs / 1000)}s`);
+        this.destroy(sessionId);
+        cleaned++;
+      }
+    }
+
+    if (cleaned > 0) {
+      console.log(`[SdkSessionManager] Cleanup: removed ${cleaned} sessions (${this.#sessions.size} remaining)`);
+    }
+  }
+
+  // ── Introspection ───────────────────────────────────────────────
+
+  get size() {
+    return this.#sessions.size;
+  }
+
+  get knownSessions() {
+    return this.#sessionFileMap.size;
+  }
+
+  listSessions() {
+    return [...this.#sessions.keys()];
+  }
+
+  // ── Private helpers ─────────────────────────────────────────────
+
+  #makeKey(projectPath, sessionId) {
+    return `${projectPath}:${sessionId}`;
+  }
+
+  /**
+   * Scan the Pi sessions directory for a file whose name contains the given sessionId.
+   * The Pi SDK names session files as: <timestamp>_<uuid>.jsonl, where <uuid> is also
+   * stored in the file header's `id` field. Since the Cleon sessionId IS this UUID,
+   * a filename scan is sufficient — no file reading required.
+   *
+   * This bridges CLI → web UI continuity: CLI sessions are never registered in
+   * cleon-sessions.json, so without this scan they'd always start fresh.
+   *
+   * @param {string} projectPath - Absolute project path (e.g. /Users/james/myproject)
+   * @param {string} sessionId - The Cleon / Pi session UUID to look for
+   * @returns {Promise<string|null>} Absolute path to the matching .jsonl file, or null
+   */
+  async #findCliSessionFile(projectPath, sessionId) {
+    try {
+      // Encode the project path the same way the Pi SDK does:
+      // /Users/james/myproject → --Users-james-myproject--
+      const safePath = '--' + projectPath.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-') + '--';
+      const sessionDir = path.join(os.homedir(), '.pi', 'agent', 'sessions', safePath);
+
+      const files = await fs.readdir(sessionDir);
+      for (const file of files) {
+        if (file.endsWith('.jsonl') && file.includes(sessionId)) {
+          return path.join(sessionDir, file);
+        }
+      }
+    } catch {
+      // Session directory doesn't exist or is unreadable — not an error, just no match
+    }
+    return null;
+  }
+
+  #extractProjectFromSessionFile(sessionFile) {
+    const match = sessionFile.match(/\/sessions\/(--[^/]+--)\/[^/]+\.jsonl$/);
+    if (!match) return null;
+    const piDirName = match[1];
+    const pathPart = piDirName.slice(2, -2);
+    return '/' + pathPart.replace(/-/g, '/');
+  }
+
+  #clearIdleTimer(entry) {
+    if (entry.idleTimer) {
+      clearTimeout(entry.idleTimer);
+      entry.idleTimer = null;
+    }
+  }
+
+  #evictOldestIdle() {
+    let oldestId = null;
+    let oldestTime = Infinity;
+
+    for (const [sessionId, entry] of this.#sessions) {
+      if (entry.idleTimer && entry.lastActivity.getTime() < oldestTime) {
+        oldestTime = entry.lastActivity.getTime();
+        oldestId = sessionId;
+      }
+    }
+
+    if (oldestId) {
+      console.log(`[SdkSessionManager] Evicting idle session ${oldestId} to make room`);
+      this.destroy(oldestId);
+      return true;
+    }
+
+    return false;
+  }
+
+  async #loadSessionFileMap() {
+    try {
+      const data = await fs.readFile(SESSIONS_FILE, 'utf8');
+      const parsed = JSON.parse(data);
+
+      if (parsed && typeof parsed === 'object') {
+        for (const [key, value] of Object.entries(parsed)) {
+          if (typeof value !== 'string') continue;
+
+          if (key.includes(':') && key.startsWith('/')) {
+            this.#sessionFileMap.set(key, value);
+          } else {
+            const projectPath = this.#extractProjectFromSessionFile(value);
+            if (projectPath) {
+              const newKey = this.#makeKey(projectPath, key);
+              this.#sessionFileMap.set(newKey, value);
+              console.log(`[SdkSessionManager] Migrated legacy session ${key} → ${newKey}`);
+            } else {
+              this.#legacySessionFileMap.set(key, value);
+              console.log(`[SdkSessionManager] Keeping legacy session ${key} (could not extract project)`);
+            }
+          }
+        }
+      }
+
+      console.log(
+        `[SdkSessionManager] Loaded ${this.#sessionFileMap.size} session mappings ` +
+        `(+ ${this.#legacySessionFileMap.size} legacy) from ${SESSIONS_FILE}`
+      );
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        console.log(`[SdkSessionManager] No existing sessions file at ${SESSIONS_FILE}`);
+      } else {
+        console.warn(`[SdkSessionManager] Failed to load sessions file:`, err.message);
+      }
+    }
+  }
+
+  async #saveSessionFileMap() {
+    try {
+      const dir = path.dirname(SESSIONS_FILE);
+      await fs.mkdir(dir, { recursive: true });
+
+      const obj = Object.fromEntries(this.#sessionFileMap);
+      await fs.writeFile(SESSIONS_FILE, JSON.stringify(obj, null, 2) + '\n', 'utf8');
+    } catch (err) {
+      console.error(`[SdkSessionManager] Failed to save sessions file:`, err.message);
+    }
+  }
+}
+
+// ─── Singleton export ───────────────────────────────────────────────
+
+export { SdkSessionManager };
+export default SdkSessionManager;
