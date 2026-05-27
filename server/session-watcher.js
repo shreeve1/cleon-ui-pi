@@ -122,20 +122,87 @@ async function getProjectInfo(filePath) {
   };
 }
 
+// How long an assistant turn must sit unchanged before we treat it as a
+// stale streaming status that the orphan-detection path should clear.
+const STALE_TURN_AGE_MS = 3_000;
+
+// How long the session file mtime must be quiet before we treat the session
+// as crashed even when the last persisted message doesn't look like a clean
+// turn end (assistant + toolUse, or just a user prompt). Matches
+// ACTIVE_THRESHOLD_MS so this never undercuts the CLI-attach heuristic.
+const STALE_FILE_AGE_MS = ACTIVE_THRESHOLD_MS;
+
+/**
+ * Decide whether a session whose registry status is 'streaming' should be
+ * reclassified as idle, based on the most recent persisted message and the
+ * session file's mtime.
+ *
+ * Two independent signals can trip the decision:
+ *
+ *   1. The last persisted message looks like a clean turn end (assistant
+ *      with stopReason 'stop' | 'aborted' | 'error') and has been quiet for
+ *      >= STALE_TURN_AGE_MS. stopReason 'toolUse' means the agent was
+ *      waiting for a tool result; stopReason null means a mid-stream message
+ *      that never got finalised — neither qualifies as a clean end.
+ *
+ *   2. The session file itself has been quiet for >= STALE_FILE_AGE_MS.
+ *      Pi's auto-compaction and auto-retry both run in the owning process,
+ *      so once we know that process isn't us, a long-quiet file means the
+ *      owner is gone. This catches the cases (1) misses: crash mid-tool-call
+ *      and crash right after a bare user prompt.
+ *
+ * @param {{ lastRole: string|null, timestamp: Date|null, stopReason: string|null, fileMtimeMs: number|null }} turnState
+ * @param {number} [now=Date.now()]
+ * @returns {{ stale: boolean, reason: 'message-age'|'file-age'|null, messageQuietMs: number|null, fileQuietMs: number|null }}
+ */
+export function evaluateStaleStreaming(turnState, now = Date.now()) {
+  const turnEndedCleanly =
+    turnState.lastRole === 'assistant' &&
+    turnState.stopReason !== 'toolUse' &&
+    turnState.stopReason !== null;
+
+  const messageQuietMs =
+    turnEndedCleanly && turnState.timestamp
+      ? now - turnState.timestamp.getTime()
+      : null;
+
+  const fileQuietMs =
+    turnState.fileMtimeMs != null ? now - turnState.fileMtimeMs : null;
+
+  const staleByMessage =
+    messageQuietMs != null && messageQuietMs >= STALE_TURN_AGE_MS;
+  const staleByFile =
+    fileQuietMs != null && fileQuietMs >= STALE_FILE_AGE_MS;
+
+  let reason = null;
+  if (staleByMessage) reason = 'message-age';
+  else if (staleByFile) reason = 'file-age';
+
+  return {
+    stale: staleByMessage || staleByFile,
+    reason,
+    messageQuietMs,
+    fileQuietMs,
+  };
+}
+
 /**
  * Check the last message in a session file to determine turn state.
  * Reads the last ~200KB of the file and parses JSONL entries to find
  * the last message and its role/timestamp. Skips partial lines at the
  * start of the buffer to ensure only complete JSONL entries are parsed.
  *
+ * Also returns the file's mtime so callers can detect a long-quiet
+ * session file (a crashed owner stops writing entirely).
+ *
  * @param {string} filePath - Path to the .jsonl session file
- * @returns {Promise<{lastRole: 'assistant'|'user'|'toolResult'|null, timestamp: Date|null, stopReason: string|null}>}
+ * @returns {Promise<{lastRole: 'assistant'|'user'|'toolResult'|null, timestamp: Date|null, stopReason: string|null, fileMtimeMs: number|null}>}
  */
 export async function checkLastMessageTurnState(filePath) {
   try {
     const stats = await fs.stat(filePath);
     if (stats.size === 0) {
-      return { lastRole: null, timestamp: null, stopReason: null };
+      return { lastRole: null, timestamp: null, stopReason: null, fileMtimeMs: stats.mtimeMs };
     }
 
     // Read the last TURN_STATE_CHECK_BYTES of the file
@@ -173,17 +240,17 @@ export async function checkLastMessageTurnState(filePath) {
           const role = entry.message.role;
           const timestamp = entry.timestamp ? new Date(entry.timestamp) : null;
           const stopReason = entry.message.stopReason || null;
-          return { lastRole: role, timestamp, stopReason };
+          return { lastRole: role, timestamp, stopReason, fileMtimeMs: stats.mtimeMs };
         }
       }
 
-      return { lastRole: null, timestamp: null, stopReason: null };
+      return { lastRole: null, timestamp: null, stopReason: null, fileMtimeMs: stats.mtimeMs };
     } finally {
       await fd.close();
     }
   } catch (err) {
     console.error(`[SessionWatcher] Error checking turn state for ${filePath}:`, err.message);
-    return { lastRole: null, timestamp: null, stopReason: null };
+    return { lastRole: null, timestamp: null, stopReason: null, fileMtimeMs: null };
   }
 }
 

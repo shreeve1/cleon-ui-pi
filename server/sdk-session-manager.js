@@ -2,12 +2,18 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
 import { createAgentSession, SessionManager } from '@mariozechner/pi-coding-agent';
+import { publish } from './bus.js';
 
 // ─── Constants ──────────────────────────────────────────────────────
 
 const IDLE_TIMEOUT_MS = parseInt(process.env.SDK_IDLE_TIMEOUT_MS, 10) || 10 * 60 * 1000; // 10 min
 const CLEANUP_INTERVAL_MS = 60_000; // 60s
-const MAX_CONCURRENT = parseInt(process.env.SDK_MAX_CONCURRENT, 10) || 10;
+// Pi's AgentSession is persistent — every (user, project, session) triple
+// consumes a slot until idle eviction. A single user with two browser tabs +
+// a CLI session is already at 3; the old cap of 10 silently evicted real
+// in-use sessions. 50 buys headroom; warm-but-idle sessions cost mostly
+// references until reactivated.
+const MAX_CONCURRENT = parseInt(process.env.SDK_MAX_CONCURRENT, 10) || 50;
 const SESSIONS_FILE = path.join(os.homedir(), '.pi', 'agent', 'cleon-sessions.json');
 
 // ─── SdkSessionManager ─────────────────────────────────────────────
@@ -213,6 +219,7 @@ class SdkSessionManager {
 
     entry.idleTimer = setTimeout(() => {
       console.log(`[SdkSessionManager] Session ${sessionId} idle timeout — destroying`);
+      this.#notifyEvicted(sessionId, entry, 'idle-timeout');
       this.destroy(sessionId);
     }, IDLE_TIMEOUT_MS);
 
@@ -372,22 +379,41 @@ class SdkSessionManager {
 
   #evictOldestIdle() {
     let oldestId = null;
+    let oldestEntry = null;
     let oldestTime = Infinity;
 
     for (const [sessionId, entry] of this.#sessions) {
       if (entry.idleTimer && entry.lastActivity.getTime() < oldestTime) {
         oldestTime = entry.lastActivity.getTime();
         oldestId = sessionId;
+        oldestEntry = entry;
       }
     }
 
     if (oldestId) {
       console.log(`[SdkSessionManager] Evicting idle session ${oldestId} to make room`);
+      this.#notifyEvicted(oldestId, oldestEntry, 'capacity');
       this.destroy(oldestId);
       return true;
     }
 
     return false;
+  }
+
+  // Publish a session-evicted event so subscribed tabs can surface a toast.
+  // The Pi AgentSession is gone; the persistent sessionId→sessionFile mapping
+  // remains, so the next prompt for this session reopens it transparently.
+  #notifyEvicted(sessionId, entry, reason) {
+    if (!entry?.username) return;
+    try {
+      publish(entry.username, {
+        type: 'session-evicted',
+        sessionId,
+        reason,
+      });
+    } catch (err) {
+      console.warn(`[SdkSessionManager] Failed to publish session-evicted for ${sessionId}:`, err.message);
+    }
   }
 
   async #loadSessionFileMap() {

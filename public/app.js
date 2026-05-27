@@ -1210,6 +1210,21 @@ function handleServerEvent(event) {
     return;
   }
 
+  if (event.type === 'session-evicted') {
+    // Server dropped the Pi AgentSession from its pool (idle timeout or
+    // capacity pressure). The session can still be resumed — the next prompt
+    // reopens it transparently from the persistent file mapping — but the
+    // user should know their warm context just went cold.
+    const localSession = getSessionBySessionId(event.sessionId);
+    const label = localSession?.project?.displayName || localSession?.project?.name || 'session';
+    const reasonText = event.reason === 'capacity'
+      ? 'paused to free resources'
+      : 'paused after going idle';
+    console.log(`[Session] Evicted ${event.sessionId} (${event.reason})`);
+    showToast(`"${label}" ${reasonText}. Next message will resume it.`, 'info');
+    return;
+  }
+
   if (event.type === 'session-created') {
     // Another tab/device created a new session - add it locally if we don't have it
     let localSession = getSessionBySessionId(event.sessionId);
@@ -3357,6 +3372,14 @@ async function selectProject(name, path, displayName, skipHashUpdate = false) {
   saveSessionState();
 }
 
+// Reconstructs the chat UI from server-persisted message history. Independent
+// of Pi's internal LLM context — Pi owns the conversation state for the next
+// turn; this only repopulates the browser DOM for a resumed/restored session.
+//
+// Not the same function the OMP→Pi migration plan removed. That one was a
+// server-side helper in the deleted server/omp.js that prepended OMP CLI
+// history to the prompt; Pi's native --session flag made it obsolete. The
+// frontend display reconstruction below is unrelated and remains correct.
 async function loadSessionHistory(session) {
   if (!session.sessionId) {
     clearMessages(session);
