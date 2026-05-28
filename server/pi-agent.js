@@ -159,6 +159,34 @@ function shouldNotifyDroppedTool(sessionId, toolName) {
   return true;
 }
 
+function formatAgentErrorMessage(rawError) {
+  let message = rawError;
+
+  if (message && typeof message === 'object') {
+    message = message.message || message.errorMessage || JSON.stringify(message);
+  }
+
+  if (typeof message !== 'string' || !message.trim()) {
+    return 'Agent turn failed without an error message.';
+  }
+
+  const trimmed = stripAnsi(message.trim());
+  const jsonStart = trimmed.indexOf('{');
+  if (jsonStart !== -1) {
+    try {
+      const parsed = JSON.parse(trimmed.slice(jsonStart));
+      const nestedMessage = parsed?.error?.message || parsed?.message;
+      if (nestedMessage) {
+        return truncateOutput(stripAnsi(String(nestedMessage)), TOOL_OUTPUT_TRUNCATE_LENGTH);
+      }
+    } catch {
+      // Keep original message when provider payload is not JSON.
+    }
+  }
+
+  return truncateOutput(trimmed, TOOL_OUTPUT_TRUNCATE_LENGTH);
+}
+
 // ─── Pi Event → Cleon UI Message Transformation ────────────────────
 
 /**
@@ -323,6 +351,22 @@ function transformEvent(event, sessionId, sessionInfo) {
     }
 
     case 'turn_end': {
+      const stopReason = event.message?.stopReason || event.message?.stop_reason || event.stopReason || event.stop_reason;
+      const rawError = event.message?.errorMessage ||
+                       event.message?.error?.message ||
+                       event.message?.error ||
+                       event.errorMessage ||
+                       event.error?.message ||
+                       event.error;
+      if (stopReason === 'error' || rawError) {
+        return {
+          type: '_agent_error',
+          message: formatAgentErrorMessage(rawError),
+          timestamp,
+          messageId,
+        };
+      }
+
       const msgUsage = event.message?.usage;
       if (msgUsage) {
         const model = event.message?.model || null;
@@ -609,6 +653,15 @@ export async function handleChat(msg, ws, username) {
           type: 'token-usage',
           sessionId: currentSessionId,
           ...transformed.usage,
+        }, username);
+        return;
+      }
+
+      if (transformed.type === '_agent_error') {
+        sendMessage(ws, {
+          type: 'error',
+          sessionId: currentSessionId,
+          message: transformed.message,
         }, username);
         return;
       }
