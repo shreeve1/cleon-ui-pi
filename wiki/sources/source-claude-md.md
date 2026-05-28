@@ -3,7 +3,7 @@ title: Source Summary — Project CLAUDE.md
 type: source-summary
 status: promoted
 created: 2026-05-27
-updated: 2026-05-27
+updated: 2026-05-28
 sources:
   - wiki/raw/claude-md-2026-05-27.md
 confidence: high
@@ -23,7 +23,7 @@ Does not cover: WebSocket message protocol, frontend SPA wiring, JWT auth intern
 ## Key Sections
 
 - **Quick Reference** — port 3015, PM2 name `cleon-ui-pi`, domain `pi.testytech.net`, entry `server/index.js`, config `.env` with `dotenv override:true`. See `wiki/raw/claude-md-2026-05-27.md` lines 5-13.
-- **Configuration** — `.env` is source of truth; `dotenv.config({ override: true })` so shell/PM2 env vars do not win. Required keys: `PORT`, `HOST`, `ALLOWED_ORIGINS`, `JWT_SECRET`, `ANTHROPIC_API_KEY`, `LOG_LEVEL`. See lines 39-49.
+- **Configuration** — `.env` is source of truth; `dotenv.config({ override: true })` so shell/PM2 env vars do not win. Snapshot listed `PORT`, `HOST`, `ALLOWED_ORIGINS`, `JWT_SECRET`, `ANTHROPIC_API_KEY`, `LOG_LEVEL`; `ANTHROPIC_API_KEY` is now stale for Cleon UI Pi app config and superseded by `C-0035`. See lines 39-49.
 - **Models** — `config/models.json` must match Pi SDK registry at `~/.pi/agent/models.json` exactly. See lines 51-60.
 - **PM2 Operations** — `npm run pm2`, `npm run pm2:restart`, `npm run pm2:logs`, `npm run pm2:stop`. `ecosystem.config.cjs` uses `cwd: __dirname` for portability; only `NODE_ENV` is set there. See lines 62-78.
 - **Common Issues** — four incidents documented with symptom/cause/fix:
@@ -58,5 +58,6 @@ Does not cover: WebSocket message protocol, frontend SPA wiring, JWT auth intern
 ## Notes
 
 - Source is a living doc; re-snapshot whenever ops content shifts.
+- Auth setup guidance in this 2026-05-27 snapshot is superseded by `C-0035` / `wiki/candidates/concept-pi-auth-boundary.md`: current docs no longer require `ANTHROPIC_API_KEY` in Cleon UI Pi `.env`.
 - Inline file:line citations point to current `server/` code; verify before quoting in answers.
 - Promoted 2026-05-27 under auto-promote-low-risk policy: well-cited, no contradictions.

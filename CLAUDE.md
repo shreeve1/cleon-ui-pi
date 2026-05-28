@@ -45,8 +45,8 @@ Key variables:
 - `HOST` — Bind address (default: 0.0.0.0)
 - `ALLOWED_ORIGINS` — CORS whitelist (comma-separated)
 - `JWT_SECRET` — Auth token secret (min 32 chars)
-- `ANTHROPIC_API_KEY` — API key for Pi agent (or configure in `~/.pi/agent/auth.json`)
 - `LOG_LEVEL` — Logging verbosity (debug/info/warn/error)
+- Pi auth/provider config is owned by Pi under `~/.pi/agent/`; Cleon UI Pi does not consume provider API keys from `.env`.
 - `SDK_MAX_CONCURRENT` — Cap on simultaneously-warm Pi `AgentSession`s (default: 50). When the cap is hit, the least-recently-active idle session is evicted silently.
 - `SDK_IDLE_TIMEOUT_MS` — Idle time before a pooled session is eligible for eviction (default: 600000 = 10 min).
 
@@ -56,8 +56,8 @@ Models available in dropdown. Must match Pi SDK registry (`~/.pi/agent/models.js
 
 ```json
 {
-  "models": ["zai/glm-5", "openai-codex/gpt-5.5"],
-  "default": "zai/glm-5"
+  "models": ["zai/glm-5.1"],
+  "default": "zai/glm-5.1"
 }
 ```
 
@@ -187,6 +187,8 @@ npm test              # Run vitest
 Sessions are managed via `@mariozechner/pi-coding-agent` SDK. Session mappings stored in `~/.pi/agent/cleon-sessions.json`.
 
 The `stripAnsi()` function in `pi-agent.js:18-24` removes ANSI escape codes from Pi output before sending to browser.
+
+Provider authentication is delegated to Pi's own config under `~/.pi/agent/`. Do not diagnose chat failures as a missing `ANTHROPIC_API_KEY` in Cleon UI Pi's `.env`; inspect Pi auth/config and the Pi model registry instead.
 
 ## Architecture Notes
 

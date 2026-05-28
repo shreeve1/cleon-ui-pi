@@ -22,7 +22,7 @@ A lightweight, mobile-first web interface for the Pi Coding Agent featuring a re
 ### Prerequisites
 
 - Node.js 18+ and npm
-- An Anthropic API key (or a working `~/.pi/agent/auth.json`)
+- Working Pi Coding Agent auth/config under `~/.pi/agent/`
 - A Pi SDK model registry at `~/.pi/agent/models.json`
 
 ### Installation
@@ -41,7 +41,7 @@ npm install
 3. Configure environment variables:
 ```bash
 cp .env.example .env
-# Edit .env — set JWT_SECRET, ALLOWED_ORIGINS, and ANTHROPIC_API_KEY (or use ~/.pi/agent/auth.json)
+# Edit .env — set JWT_SECRET and ALLOWED_ORIGINS
 ```
 
 4. Start the server:
@@ -76,8 +76,8 @@ JWT_SECRET=change-this-to-a-random-secure-string-at-least-32-chars
 # CORS: Allowed origins (comma-separated)
 ALLOWED_ORIGINS=https://your-domain.com
 
-# Anthropic API key (or configure in ~/.pi/agent/auth.json)
-ANTHROPIC_API_KEY=sk-ant-...
+# Pi auth/provider config is owned by Pi under ~/.pi/agent/.
+# Cleon UI Pi does not consume provider API keys from .env.
 
 # Optional: Logging
 LOG_LEVEL=info
@@ -330,10 +330,11 @@ Common causes: port conflict, CORS rejection, missing dependencies (`npm install
 
 ### "Failed to connect to Pi"
 
-Pi runs in-process via `@mariozechner/pi-coding-agent` — there is no `pi` subprocess. If chat fails:
+Pi runs in-process via `@mariozechner/pi-coding-agent` — there is no `pi` subprocess. Cleon UI Pi delegates provider authentication to Pi and does not read provider API keys from `.env`. If chat fails:
 
-- Verify `ANTHROPIC_API_KEY` is set in `.env` (or `~/.pi/agent/auth.json` is valid).
-- Confirm `~/.pi/agent/models.json` exists and contains the model IDs referenced by `config/models.json`.
+- Verify Pi itself is configured and authenticated under `~/.pi/agent/`.
+- Confirm `~/.pi/agent/models.json` exists and contains model IDs that Pi supports.
+- Align `config/models.json` with those Pi-supported IDs exactly.
 - Check `pm2 logs cleon-ui-pi` for Pi SDK errors.
 
 ## Contributing

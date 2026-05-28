@@ -4,8 +4,8 @@
 
 | Page | Summary | Sources | Updated |
 |------|---------|---------|---------|
-| [source-claude-md](sources/source-claude-md.md) | Snapshot summary of project CLAUDE.md — ops/runbook, env policy, PM2, CORS, Pi SDK, incidents. | `wiki/raw/claude-md-2026-05-27.md` | 2026-05-27 |
-| [source-readme](sources/source-readme.md) | Project README.md (post-rewrite) — user-facing runbook reconciled with current Pi-SDK reality. | `wiki/raw/readme-2026-05-27-rewrite.md` | 2026-05-27 |
+| [source-claude-md](sources/source-claude-md.md) | Snapshot summary of project CLAUDE.md — ops/runbook, env policy, PM2, CORS, Pi SDK, incidents; auth setup note superseded by `C-0035`. | `wiki/raw/claude-md-2026-05-27.md` | 2026-05-28 |
+| [source-readme](sources/source-readme.md) | Project README.md (post-rewrite) — user-facing runbook reconciled with current Pi-SDK reality; auth setup note superseded by `C-0035`. | `wiki/raw/readme-2026-05-27-rewrite.md` | 2026-05-28 |
 | [source-quick-test-guide](sources/source-quick-test-guide.md) | Two-minute manual smoke test for session-sync bug fixes; confirms port 3015 deploy. | `wiki/raw/quick-test-guide-2026-05-27.md` | 2026-05-27 |
 
 ## Entities
@@ -35,3 +35,4 @@ Candidate rows are discoverability aids only; do not treat them as promoted know
 |-----------|---------|---------|---------|--------|
 | [source-design-plans-history](candidates/source-design-plans-history.md) | Catalog of `docs/plans/` (message-formatting, OMP integration, model dropdown, OMP→Pi migration). | `wiki/raw/docs-plans/*.md` | 2026-05-27 | candidate — historical catalog |
 | [source-specs-catalog](candidates/source-specs-catalog.md) | Catalog of `specs/` (slash commands, @-mention, mode toggle, favorites, file paste/upload, lightweight-claude-ui, plan-mode question). | `wiki/raw/specs/*.md` | 2026-05-27 | candidate — historical catalog |
+| [concept-pi-auth-boundary](candidates/concept-pi-auth-boundary.md) | Auth/config boundary: Cleon UI Pi delegates provider auth to Pi under `~/.pi/agent/`; do not require `ANTHROPIC_API_KEY` in app `.env`. | `wiki/raw/sessions/2026-05-28-pi-auth-correction.md` | 2026-05-28 | candidate — session-derived correction |
