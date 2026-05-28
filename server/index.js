@@ -189,10 +189,18 @@ app.use("/api/files", authenticateToken, fileRoutes);
 const serverStartTime = Date.now();
 app.get("/api/health", (req, res) => {
 	const uptime = Math.floor((Date.now() - serverStartTime) / 1000);
+	const memory = process.memoryUsage();
 	res.json({
 		status: "ok",
 		uptime,
 		timestamp: new Date().toISOString(),
+		memory: {
+			rss: memory.rss,
+			heapUsed: memory.heapUsed,
+			heapTotal: memory.heapTotal,
+			external: memory.external,
+		},
+		sdkSessions: sdkSessionManager.size,
 	});
 });
 

@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
 import { glob } from 'glob';
+import { getSdkSessionManager } from './session-manager-instance.js';
 
 const router = express.Router();
 const PI_SESSIONS = path.join(os.homedir(), '.pi', 'agent', 'sessions');
@@ -111,6 +112,8 @@ router.get('/:name/sessions', async (req, res) => {
       try {
         const files = await fs.readdir(piDir);
         const jsonlFiles = files.filter(f => f.endsWith('.jsonl'));
+        const projectPath = await extractPiProjectPath(piDir, piDirName);
+        const sessionAliases = getSdkSessionManager().getSessionAliasesForProject(projectPath);
 
         const piSessions = await Promise.all(jsonlFiles.map(async (file) => {
           const filePath = path.join(piDir, file);
@@ -121,9 +124,10 @@ router.get('/:name/sessions', async (req, res) => {
           const basename = path.basename(file, '.jsonl');
           const uuidMatch = basename.match(/_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/);
           const sessionId = uuidMatch ? uuidMatch[1] : basename;
+          const logicalSessionId = sessionAliases.get(path.resolve(filePath)) || sessionId;
 
           return {
-            id: sessionId,
+            id: logicalSessionId,
             file,
             lastModified: stats.mtime.toISOString(),
             preview,
@@ -259,6 +263,29 @@ async function resolvePiDirName(projectName) {
   return null;
 }
 
+async function validateSessionFilePath(filePath, piDir) {
+  try {
+    const realFilePath = await fs.realpath(filePath);
+    const realPiDir = await fs.realpath(piDir);
+    const relative = path.relative(realPiDir, realFilePath);
+
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      return null;
+    }
+
+    return realFilePath;
+  } catch {
+    return null;
+  }
+}
+
+async function getMappedSessionPath(projectPath, sessionId, piDir) {
+  const sessionFile = getSdkSessionManager().getSessionFile(sessionId, projectPath);
+  if (!sessionFile) return null;
+
+  return validateSessionFilePath(sessionFile, piDir);
+}
+
 // ─── Helpers: Session preview extraction ────────────────────────────
 
 /**
@@ -332,36 +359,42 @@ async function getPiSessionMessages(projectName, sessionId, limit) {
     const piDir = path.join(PI_SESSIONS, piDirName);
     const files = await fs.readdir(piDir);
     const jsonlFiles = files.filter(f => f.endsWith('.jsonl'));
+    const projectPath = await extractPiProjectPath(piDir, piDirName);
+
+    // First resolve Cleon's logical session ID to the Pi SDK session file.
+    let targetFilePath = await getMappedSessionPath(projectPath, sessionId, piDir);
 
     // Find the file matching this session ID
-    let targetFile = null;
-    for (const file of jsonlFiles) {
-      // Check if UUID in filename matches
-      if (file.includes(sessionId)) {
-        targetFile = file;
-        break;
+    if (!targetFilePath) {
+      for (const file of jsonlFiles) {
+        // Check if UUID in filename matches
+        if (file.includes(sessionId)) {
+          targetFilePath = await validateSessionFilePath(path.join(piDir, file), piDir);
+          break;
+        }
       }
     }
 
     // Also check session headers if no filename match
-    if (!targetFile) {
+    if (!targetFilePath) {
       for (const file of jsonlFiles) {
         try {
-          const content = await fs.readFile(path.join(piDir, file), 'utf8');
+          const candidatePath = path.join(piDir, file);
+          const content = await fs.readFile(candidatePath, 'utf8');
           const firstLine = content.split('\n')[0];
           if (!firstLine) continue;
           const header = JSON.parse(firstLine);
           if (header.type === 'session' && header.id === sessionId) {
-            targetFile = file;
+            targetFilePath = await validateSessionFilePath(candidatePath, piDir);
             break;
           }
         } catch { /* skip */ }
       }
     }
 
-    if (!targetFile) return [];
+    if (!targetFilePath) return [];
 
-    const content = await fs.readFile(path.join(piDir, targetFile), 'utf8');
+    const content = await fs.readFile(targetFilePath, 'utf8');
     const lines = content.split('\n').filter(Boolean);
     const messages = [];
 

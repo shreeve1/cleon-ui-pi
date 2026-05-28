@@ -324,6 +324,31 @@ class SdkSessionManager {
     return [...this.#sessions.keys()];
   }
 
+  /**
+   * Get resolved session-file aliases for a project.
+   * Returns Map<absoluteSessionFile, logicalSessionId>.
+   */
+  getSessionAliasesForProject(projectPath) {
+    const aliases = new Map();
+    const prefix = `${projectPath}:`;
+
+    for (const [key, filePath] of this.#sessionFileMap) {
+      if (!key.startsWith(prefix) || typeof filePath !== 'string') continue;
+
+      const logicalSessionId = key.slice(prefix.length);
+      const resolvedFilePath = path.resolve(filePath);
+      const fileSessionId = this.#extractSessionIdFromSessionFile(filePath);
+      const existing = aliases.get(resolvedFilePath);
+
+      // Prefer Cleon's logical ID over Pi's file UUID when both point at the same file.
+      if (!existing || (existing === fileSessionId && logicalSessionId !== fileSessionId)) {
+        aliases.set(resolvedFilePath, logicalSessionId);
+      }
+    }
+
+    return aliases;
+  }
+
   // ── Private helpers ─────────────────────────────────────────────
 
   #makeKey(projectPath, sessionId) {
@@ -368,6 +393,12 @@ class SdkSessionManager {
     const piDirName = match[1];
     const pathPart = piDirName.slice(2, -2);
     return '/' + pathPart.replace(/-/g, '/');
+  }
+
+  #extractSessionIdFromSessionFile(sessionFile) {
+    const basename = path.basename(sessionFile, '.jsonl');
+    const match = basename.match(/_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/);
+    return match ? match[1] : basename;
   }
 
   #clearIdleTimer(entry) {
@@ -455,13 +486,19 @@ class SdkSessionManager {
   }
 
   async #saveSessionFileMap() {
+    let tmpFile = null;
     try {
       const dir = path.dirname(SESSIONS_FILE);
       await fs.mkdir(dir, { recursive: true });
 
+      tmpFile = path.join(dir, `.cleon-sessions.${process.pid}.${Date.now()}.tmp`);
       const obj = Object.fromEntries(this.#sessionFileMap);
-      await fs.writeFile(SESSIONS_FILE, JSON.stringify(obj, null, 2) + '\n', 'utf8');
+      await fs.writeFile(tmpFile, JSON.stringify(obj, null, 2) + '\n', 'utf8');
+      await fs.rename(tmpFile, SESSIONS_FILE);
     } catch (err) {
+      if (tmpFile) {
+        try { await fs.unlink(tmpFile); } catch { /* ignore cleanup failure */ }
+      }
       console.error(`[SdkSessionManager] Failed to save sessions file:`, err.message);
     }
   }
