@@ -19,7 +19,6 @@ const MAX_PROJECTS = 30;
 const MAX_SESSIONS = 30;
 const MAX_FILE_RESULTS = 20;
 const SESSION_PREVIEW_LENGTH = 120;
-const FILE_SEARCH_LIMIT = 50;
 
 // Pi dir name codec imported from pi-path.js
 
@@ -339,7 +338,7 @@ async function getSessionMessages(projectName, sessionId, limit = 100) {
  * Pi sessions: each .jsonl file IS a session. The session ID is the UUID from the filename
  * or the header's id field. All entries in the file belong to that session.
  */
-async function getPiSessionMessages(projectName, sessionId, limit) {
+async function getPiSessionMessages(projectName, sessionId, _limit) {
 	try {
 		const piDirName = await resolvePiDirName(projectName);
 		if (!piDirName) return [];

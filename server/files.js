@@ -297,23 +297,6 @@ function buildFileTree(files) {
 }
 
 /**
- * Sort tree entries: directories first, then files, alphabetically within each group
- */
-function sortTreeEntries(entries) {
-	return entries.sort((a, b) => {
-		const aIsDir = a.isDirectory;
-		const bIsDir = b.isDirectory;
-
-		// Directories first
-		if (aIsDir && !bIsDir) return -1;
-		if (!aIsDir && bIsDir) return 1;
-
-		// Alphabetical within same type
-		return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
-	});
-}
-
-/**
  * Get file tree structure for a project
  */
 router.get("/:project/tree", async (req, res) => {
