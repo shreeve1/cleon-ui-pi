@@ -3,9 +3,10 @@ title: Source Catalog — specs/
 type: source-summary
 status: candidate
 created: 2026-05-27
-updated: 2026-05-27
+updated: 2026-05-30
 sources:
   - wiki/raw/specs/add-global-and-project-slash-commands.md
+  - wiki/raw/sessions/2026-05-30-slash-skill-discovery-preservation.md
   - wiki/raw/specs/at-mention-file-search.md
   - wiki/raw/specs/chat-mode-toggle-button.md
   - wiki/raw/specs/favorite-projects-feature.md
@@ -22,7 +23,7 @@ Tight catalog of feature specs at the repo root. Mixed shipping status: some shi
 
 | Spec | Purpose (≤25 words) | Shipped | Surfaces | Notes |
 |------|---------------------|---------|----------|-------|
-| `add-global-and-project-slash-commands.md` | Load custom slash commands from `~/.claude/commands/` and project dirs into autocomplete. | **Unshipped** | backend + frontend | No `/api/commands` endpoint and no `server/commands.js` in the current tree. |
+| `add-global-and-project-slash-commands.md` | Load custom slash commands from `~/.claude/commands/` and project dirs into autocomplete. | **Superseded / shipped differently** | backend + frontend | Original status was stale. `/api/commands` and `server/commands.js` now exist; Pi skill discovery is captured in `concept-slash-skill-discovery`. |
 | `at-mention-file-search.md` | `@` mention in chat to search & reference project files. | **Partial** | backend + frontend | `fileMentionsEl` and search UI rendered in `public/app.js`; backend wiring incomplete or unverified. |
 | `chat-mode-toggle-button.md` | Left-side button cycling Default → Plan → Bypass without slash commands. | **Unshipped** | frontend | No mode-toggle handler found in `public/app.js`. |
 | `favorite-projects-feature.md` | Star button on projects; localStorage; float favorited projects to top. | **Shipped** | frontend | `favorite-btn`, `isFavorite()`, `toggleFavorite()` present in `public/app.js`. |
@@ -34,10 +35,12 @@ Tight catalog of feature specs at the repo root. Mixed shipping status: some shi
 
 - Promote `favorite-projects-feature.md` as a shipped feature reference if/when a concept page is needed.
 - Keep `at-mention-file-search.md`, `file-paste-upload-feature.md`, `plan-mode-question-display.md` as partial-status references; revisit if a user reports a bug in one of those surfaces and verify shipping status against code.
-- Defer `add-global-and-project-slash-commands.md` and `chat-mode-toggle-button.md` — neither is wired up.
+- Treat `add-global-and-project-slash-commands.md` status as superseded by `wiki/candidates/concept-slash-skill-discovery.md`; do not use this historical spec to remove or narrow `server/commands.js`.
+- Defer `chat-mode-toggle-button.md` — it is not wired up.
 - `lightweight-claude-ui.md` is umbrella context only. Don't re-ingest unless someone asks specifically about the pre-Pi era.
 
 ## Cross-references
 
-- README staleness vs. current state → `wiki/candidates/source-readme.md`.
-- Current backend → `wiki/candidates/entity-server-index.md`, `wiki/candidates/entity-server-pi-agent.md`.
+- Slash skill discovery current state → `wiki/candidates/concept-slash-skill-discovery.md`.
+- README staleness vs. current state → `wiki/sources/source-readme.md`.
+- Current backend → `wiki/entities/entity-server-index.md`, `wiki/entities/entity-server-pi-agent.md`.

@@ -27,6 +27,72 @@ function parseFrontmatter(content) {
 	return frontmatter;
 }
 
+async function readJsonFile(filePath) {
+	try {
+		return JSON.parse(await fs.readFile(filePath, "utf-8"));
+	} catch (err) {
+		if (err.code !== "ENOENT") {
+			console.warn(`[Commands] Failed to read ${filePath}:`, err.message);
+		}
+		return {};
+	}
+}
+
+function resolveConfiguredPath(configPath, baseDir) {
+	if (!configPath || typeof configPath !== "string") return null;
+
+	if (configPath === "~") return os.homedir();
+	if (configPath.startsWith("~/")) {
+		return path.join(os.homedir(), configPath.slice(2));
+	}
+	if (configPath.startsWith("~")) {
+		return path.join(os.homedir(), configPath.slice(1));
+	}
+	if (path.isAbsolute(configPath)) return configPath;
+
+	return path.resolve(baseDir, configPath);
+}
+
+async function pathExists(filePath) {
+	try {
+		await fs.access(filePath);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+async function findGitRepoRoot(startDir) {
+	let current = path.resolve(startDir);
+
+	while (true) {
+		if (await pathExists(path.join(current, ".git"))) return current;
+
+		const parent = path.dirname(current);
+		if (parent === current) return null;
+		current = parent;
+	}
+}
+
+async function getAncestorAgentsSkillDirs(projectPath) {
+	if (!projectPath) return [];
+
+	const dirs = [];
+	const repoRoot = await findGitRepoRoot(projectPath);
+	let current = path.resolve(projectPath);
+
+	while (true) {
+		dirs.push(path.join(current, ".agents", "skills"));
+		if (repoRoot && current === repoRoot) break;
+
+		const parent = path.dirname(current);
+		if (parent === current) break;
+		current = parent;
+	}
+
+	return dirs;
+}
+
 /**
  * Parse a command file and extract metadata
  * @param {string} filePath - Path to the markdown command file
@@ -50,28 +116,28 @@ async function parseCommandFile(filePath) {
 }
 
 /**
- * Parse a Pi/Claude skill file and extract metadata
- * @param {string} filePath - Path to SKILL.md or a standalone .md skill file
- * @param {string} fallbackName - Name to use when frontmatter has no name
+ * Parse a Pi skill file and extract metadata for Pi's /skill:name command.
+ * @param {string} filePath - Path to the markdown skill file
  * @param {string} source - Source identifier
- * @returns {Promise<Object|null>} Skill object or null if parsing fails
+ * @returns {Promise<Object|null>} Skill command object or null if parsing fails
  */
-async function parseSkillFile(filePath, fallbackName, source) {
+async function parseSkillFile(filePath, source) {
 	try {
 		const content = await fs.readFile(filePath, "utf-8");
 		const frontmatter = parseFrontmatter(content);
-		const name = frontmatter.name || fallbackName;
+		const fileName = path.basename(filePath, ".md");
+		const fallbackName =
+			fileName === "SKILL" ? path.basename(path.dirname(filePath)) : fileName;
+		const skillName = frontmatter.name || fallbackName;
 
 		return {
-			name: `/${name}`,
-			description: frontmatter.description || `Run ${fallbackName} skill`,
+			name: `/skill:${skillName}`,
+			description: frontmatter.description || `Run ${skillName} skill`,
 			path: filePath,
 			source,
 		};
 	} catch (err) {
-		if (err.code !== "ENOENT") {
-			console.warn(`[Skills] Failed to parse ${filePath}:`, err.message);
-		}
+		console.warn(`[Skills] Failed to parse ${filePath}:`, err.message);
 		return null;
 	}
 }
@@ -125,7 +191,6 @@ export async function getProjectCommands(projectPath) {
 
 /**
  * Get project-specific skills from <projectPath>/.pi/skills/
- * Only includes top-level skills that have a SKILL.md file.
  * @param {string} projectPath - The project's filesystem path
  * @returns {Promise<Array>} Array of project skill objects
  */
@@ -133,17 +198,43 @@ export async function getProjectSkills(projectPath) {
 	if (!projectPath) return [];
 
 	const skillsDir = path.join(projectPath, ".pi", "skills");
-	return discoverSkills(skillsDir, "skill");
+	return discoverSkillPath(skillsDir, "skill");
 }
 
 /**
- * Get skills from a directory (Pi skill format)
- * Only includes top-level skills that have a SKILL.md file.
- * @param {string} skillsDir - Path to skills directory
+ * Discover skills from a file or directory path.
+ * Pi discovery supports direct root .md files and recursive SKILL.md files.
+ * @param {string} skillPath - Path to a skill file or skill directory
  * @param {string} source - Source identifier
  * @returns {Promise<Array>} Array of skill objects
  */
-async function discoverSkills(skillsDir, source) {
+async function discoverSkillPath(skillPath, source) {
+	try {
+		const stats = await fs.stat(skillPath);
+		if (stats.isFile() && skillPath.endsWith(".md")) {
+			const skill = await parseSkillFile(skillPath, source);
+			return skill ? [skill] : [];
+		}
+		if (stats.isDirectory()) {
+			return discoverSkills(skillPath, source, true);
+		}
+	} catch (err) {
+		if (err.code !== "ENOENT") {
+			console.warn(`[Skills] Error reading ${skillPath}:`, err.message);
+		}
+	}
+
+	return [];
+}
+
+/**
+ * Get skills from a directory (Pi skill format).
+ * @param {string} skillsDir - Path to skills directory
+ * @param {string} source - Source identifier
+ * @param {boolean} includeRootFiles - Include direct .md children at this directory level
+ * @returns {Promise<Array>} Array of skill objects
+ */
+async function discoverSkills(skillsDir, source, includeRootFiles = true) {
 	const skills = [];
 
 	try {
@@ -153,26 +244,33 @@ async function discoverSkills(skillsDir, source) {
 			// Skip hidden entries and common non-skill directories
 			if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
 
-			if (entry.isDirectory()) {
-				const skillFile = path.join(skillsDir, entry.name, "SKILL.md");
-				const skill = await parseSkillFile(skillFile, entry.name, source).catch(
-					() => null,
-				);
-				if (skill) skills.push(skill);
+			const entryPath = path.join(skillsDir, entry.name);
+			let isDirectory = entry.isDirectory();
+			let isFile = entry.isFile();
+
+			if (entry.isSymbolicLink()) {
+				try {
+					const stats = await fs.stat(entryPath);
+					isDirectory = stats.isDirectory();
+					isFile = stats.isFile();
+				} catch {
+					continue;
+				}
+			}
+
+			if (isDirectory) {
+				skills.push(...(await discoverSkills(entryPath, source, false)));
 				continue;
 			}
 
-			// Claude also supports standalone skill files like netbird-troubleshoot.md
-			if (
-				entry.isFile() &&
-				entry.name.endsWith(".md") &&
-				entry.name !== "SKILL.md"
-			) {
-				const filePath = path.join(skillsDir, entry.name);
-				const fallbackName = path.basename(entry.name, ".md");
-				const skill = await parseSkillFile(filePath, fallbackName, source);
-				if (skill) skills.push(skill);
-			}
+			if (!isFile) continue;
+
+			const isRootMarkdown = includeRootFiles && entry.name.endsWith(".md");
+			const isNestedSkill = !includeRootFiles && entry.name === "SKILL.md";
+			if (!isRootMarkdown && !isNestedSkill) continue;
+
+			const skill = await parseSkillFile(entryPath, source);
+			if (skill) skills.push(skill);
 		}
 	} catch (err) {
 		if (err.code !== "ENOENT") {
@@ -183,48 +281,115 @@ async function discoverSkills(skillsDir, source) {
 	return skills;
 }
 
-/**
- * Get skills from ~/.pi/agent/skills/
- * Only includes top-level skills that have a SKILL.md file.
- * @returns {Promise<Array>} Array of pi skill objects
- */
-export async function getPiSkills() {
-	const skillsDir = path.join(os.homedir(), ".pi", "agent", "skills");
-	return discoverSkills(skillsDir, "skill");
-}
+async function discoverExtensionSkillDirs(rootDir) {
+	const skillDirs = [];
 
-/**
- * Get skills from ~/.pi/agent/extensions/<extension>/skills/
- * @returns {Promise<Array>} Array of pi extension skill objects
- */
-export async function getPiExtensionSkills() {
-	const extensionsDir = path.join(os.homedir(), ".pi", "agent", "extensions");
-	const skills = [];
-
-	try {
-		const entries = await fs.readdir(extensionsDir, { withFileTypes: true });
+	async function walk(directory) {
+		let entries;
+		try {
+			entries = await fs.readdir(directory, { withFileTypes: true });
+		} catch (err) {
+			if (err.code !== "ENOENT") {
+				console.warn(`[Skills] Error reading ${directory}:`, err.message);
+			}
+			return;
+		}
 
 		for (const entry of entries) {
-			if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-			const extensionSkillsDir = path.join(extensionsDir, entry.name, "skills");
-			skills.push(...(await discoverSkills(extensionSkillsDir, "skill")));
-		}
-	} catch (err) {
-		if (err.code !== "ENOENT") {
-			console.warn(`[Skills] Error reading ${extensionsDir}:`, err.message);
+			if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+
+			const entryPath = path.join(directory, entry.name);
+			let isDirectory = entry.isDirectory();
+			if (entry.isSymbolicLink()) {
+				try {
+					isDirectory = (await fs.stat(entryPath)).isDirectory();
+				} catch {
+					continue;
+				}
+			}
+			if (!isDirectory) continue;
+
+			if (entry.name === "skills") {
+				skillDirs.push(entryPath);
+			} else {
+				await walk(entryPath);
+			}
 		}
 	}
 
-	return skills;
+	await walk(rootDir);
+	return skillDirs;
+}
+
+async function getConfiguredSkillPaths(projectPath) {
+	const home = os.homedir();
+	const agentDir = path.join(home, ".pi", "agent");
+	const globalSettings = await readJsonFile(
+		path.join(agentDir, "settings.json"),
+	);
+	const projectSettingsPath = projectPath
+		? path.join(projectPath, ".pi", "settings.json")
+		: null;
+	const projectSettings = projectSettingsPath
+		? await readJsonFile(projectSettingsPath)
+		: {};
+
+	const enableSkillCommands =
+		projectSettings.enableSkillCommands ??
+		globalSettings.enableSkillCommands ??
+		true;
+	if (!enableSkillCommands) return [];
+
+	const globalSkillPaths = Array.isArray(globalSettings.skills)
+		? globalSettings.skills
+		: [];
+	const projectSkillPaths = Array.isArray(projectSettings.skills)
+		? projectSettings.skills
+		: [];
+	const projectBaseDir = projectPath
+		? path.join(projectPath, ".pi")
+		: process.cwd();
+
+	return [
+		...projectSkillPaths.map((skillPath) =>
+			resolveConfiguredPath(skillPath, projectBaseDir),
+		),
+		...globalSkillPaths.map((skillPath) =>
+			resolveConfiguredPath(skillPath, agentDir),
+		),
+	].filter(Boolean);
 }
 
 /**
- * Get skills from ~/.claude/skills/
- * @returns {Promise<Array>} Array of Claude skill objects
+ * Get skills from Pi's discovered skill locations.
+ * Mirrors the common Pi locations used by the SDK: ~/.pi/agent/skills,
+ * ~/.agents/skills, project ancestor .agents/skills, configured settings
+ * paths, and extension package skills under ~/.pi/agent/extensions/.
+ * @param {string} projectPath - Optional project path
+ * @returns {Promise<Array>} Array of pi skill objects
  */
-export async function getClaudeSkills() {
-	const skillsDir = path.join(os.homedir(), ".claude", "skills");
-	return discoverSkills(skillsDir, "skill");
+export async function getPiSkills(projectPath = null) {
+	const home = os.homedir();
+	const agentDir = path.join(home, ".pi", "agent");
+	const extensionSkillDirs = await discoverExtensionSkillDirs(
+		path.join(agentDir, "extensions"),
+	);
+	const ancestorAgentsDirs = await getAncestorAgentsSkillDirs(projectPath);
+	const configuredSkillPaths = await getConfiguredSkillPaths(projectPath);
+
+	const skillPaths = [
+		path.join(agentDir, "skills"),
+		path.join(home, ".agents", "skills"),
+		...ancestorAgentsDirs,
+		...extensionSkillDirs,
+		...configuredSkillPaths,
+	];
+
+	const skillGroups = await Promise.all(
+		skillPaths.map((skillPath) => discoverSkillPath(skillPath, "skill")),
+	);
+
+	return skillGroups.flat();
 }
 
 /**
@@ -269,26 +434,18 @@ export async function getPiPrompts() {
 }
 
 /**
- * Get all commands merged (pi prompts + extension skills + global skills + project skills + project commands, with project taking precedence)
+ * Get all commands merged (pi prompts + pi skills + project skills + project commands, with project taking precedence)
  * @param {string} projectPath - Optional project path
  * @returns {Promise<Array>} Merged array of commands
  */
 export async function getAllCommands(projectPath) {
-	const [
-		projectCommands,
-		projectSkills,
-		piSkills,
-		piExtensionSkills,
-		claudeSkills,
-		piPrompts,
-	] = await Promise.all([
-		getProjectCommands(projectPath),
-		getProjectSkills(projectPath),
-		getPiSkills(),
-		getPiExtensionSkills(),
-		getClaudeSkills(),
-		getPiPrompts(),
-	]);
+	const [projectCommands, projectSkills, piSkills, piPrompts] =
+		await Promise.all([
+			getProjectCommands(projectPath),
+			getProjectSkills(projectPath),
+			getPiSkills(projectPath),
+			getPiPrompts(),
+		]);
 
 	const commandMap = new Map();
 
@@ -297,22 +454,12 @@ export async function getAllCommands(projectPath) {
 		commandMap.set(prompt.name, prompt);
 	}
 
-	// Bundled extension skills override prompts
-	for (const skill of piExtensionSkills) {
-		commandMap.set(skill.name, skill);
-	}
-
-	// Claude skills override bundled extension skills
-	for (const skill of claudeSkills) {
-		commandMap.set(skill.name, skill);
-	}
-
-	// Pi skills override Claude/extension skills
+	// Pi skills override prompts
 	for (const skill of piSkills) {
 		commandMap.set(skill.name, skill);
 	}
 
-	// Project skills override global skills
+	// Project skills override pi skills
 	for (const skill of projectSkills) {
 		commandMap.set(skill.name, skill);
 	}
