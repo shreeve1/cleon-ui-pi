@@ -10,6 +10,8 @@ logs/
 debug-snapshot/
 test-results/
 sessions/
+!wiki/raw/sessions/
+!wiki/raw/sessions/*.md
 specs/
 research/
 artifacts/

@@ -143,3 +143,10 @@ Append entries with this format:
 - Inputs: user report that `/` autocomplete showed only a small skill subset such as `/dotfiles` and `/mermaid`; `wiki/index.md`; `wiki/ROUTING.md`; `wiki/candidates/source-specs-catalog.md`; `server/commands.js`; Pi `docs/skills.md`
 - Outputs: `server/commands.js` now discovers Pi skills from `~/.pi/agent/skills`, `~/.agents/skills`, project ancestor `.agents/skills`, extension skill dirs, and configured settings skill paths; skill commands are emitted as `/skill:<name>` to match Pi SDK expansion; `tests/unit/commands.test.js` added; `~/.pi/agent/settings.json` updated with `~/.claude/skills` after user approval
 - Notes: Existing wiki claim `C-0032` is stale because `server/commands.js` and `/api/commands` now exist; source-specs catalog should be refreshed or superseded during next wiki maintenance.
+
+## [2026-05-30] session-update | Slash skill discovery preservation
+
+- Actor: Pi agent (wiki-update SessionUpdate workflow)
+- Inputs: James's report that the slash skill discovery fix has been overwritten multiple times; committed fix `441c0d0`; `server/commands.js`; `tests/unit/commands.test.js`; live `/api/commands` verification; existing stale claim `C-0032`
+- Outputs: raw session capture `wiki/raw/sessions/2026-05-30-slash-skill-discovery-preservation.md`; candidate `wiki/candidates/concept-slash-skill-discovery.md`; `wiki/candidates/source-specs-catalog.md` marked partially superseded; claims `C-0036` and `C-0037` added; `C-0032` marked superseded; index/routing updated
+- Notes: Future agents should preserve `/skill:<name>` command names and Pi-compatible skill locations in `server/commands.js`; verify with `npm test` and live `/api/commands` after PM2 restart.
