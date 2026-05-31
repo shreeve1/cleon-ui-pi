@@ -93,7 +93,7 @@ class SdkSessionManager {
 	 * @param {string} sessionId   Cleon UI session ID
 	 * @param {string} projectPath Absolute path to the project directory
 	 * @param {string} username    Owning user
-	 * @returns {{ session: AgentSession, sessionFile: string|null, isNew: boolean }}
+	 * @returns {Promise<{ session: AgentSession, sessionFile: string|null, isNew: boolean }>}
 	 */
 	async getOrCreate(sessionId, projectPath, username) {
 		const projectKey = this.#makeKey(projectPath, sessionId);

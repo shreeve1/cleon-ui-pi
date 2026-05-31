@@ -44,7 +44,7 @@ import {
 	replayBufferToCallback,
 	hasActiveBuffer,
 } from "./broadcast.js";
-import { errorHandler, notFoundHandler } from "./errors.js";
+import { errorHandler } from "./errors.js";
 import sdkSessionManager from "./session-manager-instance.js";
 import {
 	attachToCliSession,
@@ -187,7 +187,7 @@ app.use("/api/files", authenticateToken, fileRoutes);
 
 // Health check
 const serverStartTime = Date.now();
-app.get("/api/health", (req, res) => {
+app.get("/api/health", (_req, res) => {
 	const uptime = Math.floor((Date.now() - serverStartTime) / 1000);
 	const memory = process.memoryUsage();
 	res.json({
@@ -220,7 +220,7 @@ app.get("/api/commands", authenticateToken, async (req, res) => {
 });
 
 // Models API - get configured models for dropdown
-app.get("/api/models", authenticateToken, async (req, res) => {
+app.get("/api/models", authenticateToken, async (_req, res) => {
 	try {
 		const config = await loadModelsConfig();
 		res.json(config);

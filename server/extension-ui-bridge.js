@@ -50,7 +50,7 @@ export function createExtensionUIBridge(sessionId, sendMessage, username) {
   /**
    * Send a UI request to the browser and wait for the response.
    */
-  function sendAndWait(type, payload) {
+  function sendAndWait(_type, payload) {
     return new Promise((resolve) => {
       const requestId = randomUUID();
       pending.set(requestId, { resolve });
@@ -102,7 +102,7 @@ export function createExtensionUIBridge(sessionId, sendMessage, username) {
       return normalized === 'Yes';
     },
 
-    async input(title, placeholder, opts) {
+    async input(title, placeholder, _opts) {
       const result = await sendAndWait('input', {
         questions: [{
           question: title || 'Enter a value',
@@ -136,15 +136,15 @@ export function createExtensionUIBridge(sessionId, sendMessage, username) {
       return () => {};
     },
 
-    setStatus(key, text) {
+    setStatus(_key, _text) {
       // Could send status updates to frontend if needed
     },
 
-    setWorkingMessage(message) {
+    setWorkingMessage(_message) {
       // Could send working message to frontend if needed
     },
 
-    setWidget(placement, content) {
+    setWidget(_placement, _content) {
       // Not applicable for web UI
     },
   };
@@ -169,7 +169,7 @@ export function createExtensionUIBridge(sessionId, sendMessage, username) {
      * Reject all pending requests (e.g., on session abort/cleanup).
      */
     cleanup() {
-      for (const [id, p] of pending) {
+      for (const p of pending.values()) {
         p.resolve(undefined);
       }
       pending.clear();
