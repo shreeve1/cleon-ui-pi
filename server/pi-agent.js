@@ -10,6 +10,7 @@ import { getSdkSessionManager } from "./session-manager-instance.js";
 import { createExtensionUIBridge } from "./extension-ui-bridge.js";
 import { encode as encodePiDirName } from "./pi-path.js";
 import { createEventTransformer } from "./event-transformer.js";
+import { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
 
 // ─── Active sessions ────────────────────────────────────────────────
 
@@ -187,26 +188,26 @@ export async function handleChat(msg, ws, username) {
 			const provider = msg.model.slice(0, slashIdx);
 			const modelId = msg.model.slice(slashIdx + 1);
 			try {
-				// Use the model registry to resolve and set the model
-				const modelRegistry = session.modelRegistry;
+				// Resolve through a fresh authenticated registry so chat override
+				// enforcement matches `/api/models` after auth/model changes.
+				const authStorage = AuthStorage.create();
+				const modelRegistry = new ModelRegistry(authStorage);
 
-				// Safely access model registry with proper null checks
-				if (!modelRegistry) {
+				if (typeof modelRegistry.getAvailable !== "function") {
 					console.warn(
-						`[Pi] Model registry not available, using default model`,
-					);
-				} else if (typeof modelRegistry.find !== "function") {
-					console.warn(
-						`[Pi] Model registry API has changed (find method not found), using default model`,
+						`[Pi] Model registry API has changed (getAvailable method not found), using default model`,
 					);
 				} else {
-					const model = modelRegistry.find(provider, modelId);
+					const availableModels = await modelRegistry.getAvailable();
+					const model = availableModels.find(
+						(m) => m.provider === provider && m.id === modelId,
+					);
 					if (model) {
 						await session.setModel(model);
 						console.log(`[Pi] Model set to ${msg.model}`);
 					} else {
 						console.warn(
-							`[Pi] Model ${msg.model} not found in registry, using default model`,
+							`[Pi] Model ${msg.model} not authenticated or not found, using default model`,
 						);
 					}
 				}

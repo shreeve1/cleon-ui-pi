@@ -1,12 +1,11 @@
 import { readFile } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { AuthStorage, ModelRegistry } from '@mariozechner/pi-coding-agent';
 import logger from './logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = path.join(__dirname, '../config/models.json');
-
-let cachedConfig = null;
 
 /**
  * Generate a human-readable display name from a model ID.
@@ -41,73 +40,90 @@ function generateDisplayName(modelId) {
   return name;
 }
 
-/**
- * Load and parse the models configuration file.
- * Caches the result in memory for subsequent calls.
- * 
- * @returns {Promise<{models: Array<{id, provider, key, name}>, default?: string}>}
- */
-export async function loadModelsConfig() {
-  if (cachedConfig) {
-    return cachedConfig;
-  }
-  
+async function loadConfiguredDefault() {
   try {
     const fileContent = await readFile(CONFIG_PATH, 'utf-8');
     const parsed = JSON.parse(fileContent);
-    
-    if (!parsed.models || !Array.isArray(parsed.models)) {
-      logger.warn('Models config missing "models" array, returning empty list');
-      cachedConfig = { models: [], default: parsed.default };
-      return cachedConfig;
-    }
-    
-    const models = [];
-    
-    for (const entry of parsed.models) {
-      if (typeof entry !== 'string') {
-        logger.warn('Skipping invalid model entry (not a string)', { entry });
-        continue;
-      }
-      
-      const parts = entry.split('/');
-      if (parts.length < 2) {
-        logger.warn('Skipping invalid model entry (missing provider)', { entry });
-        continue;
-      }
-      
-      const provider = parts[0];
-      const modelId = parts.slice(1).join('/');
-      
-      if (!provider || !modelId) {
-        logger.warn('Skipping invalid model entry (empty provider or model)', { entry });
-        continue;
-      }
-      
-      models.push({
-        id: modelId,
-        provider,
-        key: entry,
-        name: generateDisplayName(modelId)
+
+    if (parsed.default && typeof parsed.default !== 'string') {
+      logger.warn('Models config default must be a string', {
+        default: parsed.default
       });
+      return null;
     }
-    
-    cachedConfig = {
-      models,
-      default: parsed.default
-    };
-    
-    logger.info('Loaded models config', { count: models.length });
-    return cachedConfig;
-    
+
+    return parsed.default || null;
   } catch (err) {
     if (err.code === 'ENOENT') {
-      logger.warn('Models config file not found, returning empty list', { path: CONFIG_PATH });
+      logger.warn('Models config file not found; no configured default available', {
+        path: CONFIG_PATH
+      });
     } else {
-      logger.error('Error reading models config', { error: err.message, path: CONFIG_PATH });
+      logger.error('Error reading models config default', {
+        error: err.message,
+        path: CONFIG_PATH
+      });
     }
-    
-    cachedConfig = { models: [] };
-    return cachedConfig;
+
+    return null;
+  }
+}
+
+function isValidRegistryModel(model) {
+  return (
+    model &&
+    typeof model.provider === 'string' &&
+    model.provider.length > 0 &&
+    typeof model.id === 'string' &&
+    model.id.length > 0
+  );
+}
+
+function toDropdownModel(model) {
+  return {
+    id: model.id,
+    provider: model.provider,
+    key: `${model.provider}/${model.id}`,
+    name: model.name || generateDisplayName(model.id)
+  };
+}
+
+/**
+ * Load authenticated Pi SDK models for the frontend dropdown.
+ * Availability is intentionally fresh per request; only the configured default
+ * is read from config/models.json, and only returned when authenticated.
+ *
+ * @returns {Promise<{models: Array<{id, provider, key, name}>, default: string|null}>}
+ */
+export async function loadModelsConfig() {
+  try {
+    const authStorage = AuthStorage.create();
+    const modelRegistry = new ModelRegistry(authStorage);
+    const availableModels = await modelRegistry.getAvailable();
+
+    const models = (Array.isArray(availableModels) ? availableModels : [])
+      .filter(isValidRegistryModel)
+      .map(toDropdownModel);
+
+    const configuredDefault = await loadConfiguredDefault();
+    const defaultModel = configuredDefault && models.some(model => model.key === configuredDefault)
+      ? configuredDefault
+      : null;
+
+    if (configuredDefault && !defaultModel) {
+      logger.warn('Configured default model is not authenticated; returning no default', {
+        default: configuredDefault
+      });
+    }
+
+    logger.info('Loaded authenticated Pi models', {
+      count: models.length,
+      default: defaultModel
+    });
+
+    return { models, default: defaultModel };
+  } catch (err) {
+    logger.error('Error loading authenticated Pi models', { error: err.message });
+    return { models: [], default: null };
   }
 }

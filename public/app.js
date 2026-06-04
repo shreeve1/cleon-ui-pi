@@ -781,6 +781,8 @@ function setModel(modelKey) {
 	state.selectedModel = modelKey;
 	if (modelKey) {
 		localStorage.setItem("selectedModel", modelKey);
+	} else {
+		localStorage.removeItem("selectedModel");
 	}
 	// Update button label
 	const model = state.availableModels.find((m) => m.key === modelKey);
@@ -923,15 +925,20 @@ async function fetchAndPopulateModels() {
 		if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 		const config = await resp.json();
 
-		state.availableModels = config.models || [];
-		state.defaultModel = config.default || null;
+		state.availableModels = Array.isArray(config.models) ? config.models : [];
+		const configuredDefault = config.default || null;
+		const defaultIsValid =
+			configuredDefault &&
+			state.availableModels.some((m) => m.key === configuredDefault);
+		state.defaultModel = defaultIsValid ? configuredDefault : null;
 
 		renderModelDropdown(state.availableModels);
 
-		// Set initial model: use localStorage if valid, else default
+		// Set initial model: use localStorage if valid, else authenticated default
 		const saved = localStorage.getItem("selectedModel");
-		const isValid = saved && state.availableModels.some((m) => m.key === saved);
-		setModel(isValid ? saved : state.defaultModel);
+		const savedIsValid =
+			saved && state.availableModels.some((m) => m.key === saved);
+		setModel(savedIsValid ? saved : state.defaultModel);
 	} catch (err) {
 		console.error("[Models] Failed to fetch models:", err);
 		if (modelBtnLabel) modelBtnLabel.textContent = "Error";
