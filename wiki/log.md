@@ -150,3 +150,10 @@ Append entries with this format:
 - Inputs: James's report that the slash skill discovery fix has been overwritten multiple times; committed fix `441c0d0`; `server/commands.js`; `tests/unit/commands.test.js`; live `/api/commands` verification; existing stale claim `C-0032`
 - Outputs: raw session capture `wiki/raw/sessions/2026-05-30-slash-skill-discovery-preservation.md`; candidate `wiki/candidates/concept-slash-skill-discovery.md`; `wiki/candidates/source-specs-catalog.md` marked partially superseded; claims `C-0036` and `C-0037` added; `C-0032` marked superseded; index/routing updated
 - Notes: Future agents should preserve `/skill:<name>` command names and Pi-compatible skill locations in `server/commands.js`; verify with `npm test` and live `/api/commands` after PM2 restart.
+
+## [2026-06-07] query | Model dropdown single-option regression
+
+- Actor: Pi agent (diagnose workflow)
+- Inputs: user report that web console model dropdown keeps reverting to one z.ai GLM option; `wiki/index.md`; `wiki/ROUTING.md`; `wiki/CLAIMS.md`; `wiki/candidates/source-design-plans-history.md`; live `/api/models` probe; `config/models.json`; `~/.pi/agent/models.json`; `server/models.js`; `public/app.js`; git history for `config/models.json`
+- Outputs: no wiki knowledge pages changed; diagnostic evidence recorded in this log entry
+- Notes: Live `/api/models` returns only `zai/glm-5.1` because repo-tracked `config/models.json` contains only that model while Pi registry contains 14 models. Recurrence appears caused by dual model registries and tracked config edits narrowing the UI allowlist during prior mismatch/error fixes.

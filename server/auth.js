@@ -53,7 +53,7 @@ function hasUser() {
  * GET /api/auth/status
  * Check if initial setup is needed
  */
-router.get('/status', (req, res) => {
+router.get('/status', (_req, res) => {
   res.json({ needsSetup: !hasUser() });
 });
 

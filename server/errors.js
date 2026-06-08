@@ -164,7 +164,7 @@ export function errorHandler(err, req, res, next) {
 /**
  * Handler for unmatched API routes
  */
-export function notFoundHandler(req, res, next) {
+export function notFoundHandler(req, _res, next) {
   const error = new NotFoundError(`Route ${req.method} ${req.path} not found`);
   next(error);
 }

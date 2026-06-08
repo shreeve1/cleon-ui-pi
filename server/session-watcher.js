@@ -18,9 +18,8 @@ import {
 	startSessionBuffer,
 	broadcastToSession,
 	clearSessionBuffer,
-	hasActiveBuffer,
 } from "./broadcast.js";
-import { register, setStatus, getSession } from "./session-registry.js";
+import { register, setStatus } from "./session-registry.js";
 import { getSdkSessionManager } from "./session-manager-instance.js";
 import { decode as decodePiDirName } from "./pi-path.js";
 

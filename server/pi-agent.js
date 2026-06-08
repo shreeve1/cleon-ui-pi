@@ -37,7 +37,7 @@ function sendMessage(ws, data, username) {
  * Handle incoming chat message from WebSocket.
  */
 export async function handleChat(msg, ws, username) {
-	const { content, projectPath, sessionId, isNewSession, attachments } = msg;
+	const { content, projectPath, sessionId, attachments } = msg;
 	const projectDisplayName = projectPath ? projectPath.split("/").pop() : "";
 	const piProjectName = projectPath
 		? encodePiDirName(projectPath)
@@ -107,7 +107,7 @@ export async function handleChat(msg, ws, username) {
 			username,
 		);
 
-		const { session, sessionFile, isNew } = sessionBundle;
+		const { session, sessionFile } = sessionBundle;
 		sessionInfo.session = session;
 
 		// Create extension UI bridge for this turn
@@ -474,10 +474,10 @@ export async function handleQuestionResponse(sessionId, toolUseId, answers) {
  * Plan mode is not used with Pi — stub for interface compatibility.
  */
 export async function handlePlanResponse(
-	sessionId,
-	toolUseId,
-	approved,
-	feedback,
+	_sessionId,
+	_toolUseId,
+	_approved,
+	_feedback,
 ) {
 	console.log(`[Pi] Plan response received (not applicable for Pi backend)`);
 	return false;

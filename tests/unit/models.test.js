@@ -1,199 +1,147 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import path from "path";
 
-let availableModels;
-let configText;
-let readFileError;
-let authCreateError;
-let registryError;
-let readFileMock;
-let authCreateMock;
-let modelRegistryMock;
-let getAvailableMock;
+// Mock logger
+vi.mock("../../server/logger.js", () => ({
+	default: {
+		info: vi.fn(),
+		warn: vi.fn(),
+		error: vi.fn(),
+	},
+}));
 
-async function loadModelsModule() {
+// Mock fs/promises for local config reading
+vi.mock("fs/promises", () => ({
+	readFile: vi.fn(),
+}));
+
+import { readFile } from "fs/promises";
+
+const CONFIG_PATH = path.resolve("config/models.json");
+
+const mockGetAvailable = vi.fn();
+const mockRefresh = vi.fn();
+const mockRegistry = {
+	getAvailable: mockGetAvailable,
+	refresh: mockRefresh,
+};
+
+async function freshImport() {
 	vi.resetModules();
-
-	readFileMock = vi.fn(async () => {
-		if (readFileError) throw readFileError;
-		return configText;
-	});
-
-	vi.doMock("fs/promises", () => ({
-		readFile: readFileMock,
-	}));
-
-	vi.doMock("@mariozechner/pi-coding-agent", () => {
-		authCreateMock = vi.fn(() => {
-			if (authCreateError) throw authCreateError;
-			return { kind: "auth" };
-		});
-		getAvailableMock = vi.fn(() => availableModels);
-		modelRegistryMock = vi.fn();
-		class ModelRegistry {
-			constructor(authStorage) {
-				modelRegistryMock(authStorage);
-				if (registryError) throw registryError;
-				return { getAvailable: getAvailableMock };
-			}
-		}
-
-		return {
-			AuthStorage: { create: authCreateMock },
-			ModelRegistry,
-		};
-	});
-
-	vi.doMock("../../server/logger.js", () => ({
-		default: {
-			info: vi.fn(),
-			warn: vi.fn(),
-			error: vi.fn(),
-		},
-	}));
-
-	return import("../../server/models.js");
+	const mod = await import("../../server/models.js?" + Date.now());
+	return mod;
 }
 
-afterEach(() => {
-	vi.resetModules();
-	vi.unmock("fs/promises");
-	vi.unmock("@mariozechner/pi-coding-agent");
-	vi.unmock("../../server/logger.js");
-	availableModels = undefined;
-	configText = undefined;
-	readFileError = undefined;
-	authCreateError = undefined;
-	registryError = undefined;
-});
-
 describe("loadModelsConfig", () => {
-	it("maps authenticated SDK models to the frontend dropdown contract", async () => {
-		availableModels = [
-			{
-				provider: "anthropic",
-				id: "claude-sonnet-4-5",
-				name: "Claude Sonnet 4.5",
-			},
-			{
-				provider: "zai",
-				id: "glm-5.1",
-			},
-		];
-		configText = JSON.stringify({
-			models: ["zai/glm-5.1"],
-			default: "anthropic/claude-sonnet-4-5",
-		});
-
-		const { loadModelsConfig } = await loadModelsModule();
-		const result = await loadModelsConfig();
-
-		expect(authCreateMock).toHaveBeenCalledTimes(1);
-		expect(modelRegistryMock).toHaveBeenCalledWith({ kind: "auth" });
-		expect(getAvailableMock).toHaveBeenCalledTimes(1);
-		expect(result).toEqual({
-			models: [
-				{
-					id: "claude-sonnet-4-5",
-					provider: "anthropic",
-					key: "anthropic/claude-sonnet-4-5",
-					name: "Claude Sonnet 4.5",
-				},
-				{
-					id: "glm-5.1",
-					provider: "zai",
-					key: "zai/glm-5.1",
-					name: "GLM 5.1",
-				},
-			],
-			default: "anthropic/claude-sonnet-4-5",
-		});
+	beforeEach(() => {
+		vi.clearAllMocks();
+		readFile.mockRejectedValue(
+			Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+		);
+		mockGetAvailable.mockReturnValue([]);
+		mockRefresh.mockReturnValue(undefined);
 	});
 
-	it("filters the configured default when it is not authenticated", async () => {
-		availableModels = [
-			{ provider: "zai", id: "glm-5.1", name: "GLM 5.1" },
-		];
-		configText = JSON.stringify({ default: "anthropic/claude-sonnet-4-5" });
-
-		const { loadModelsConfig } = await loadModelsModule();
-		const result = await loadModelsConfig();
-
-		expect(result.models).toEqual([
-			{
-				id: "glm-5.1",
-				provider: "zai",
-				key: "zai/glm-5.1",
-				name: "GLM 5.1",
-			},
+	it("returns all models from Pi SDK registry when no local config exists", async () => {
+		mockGetAvailable.mockReturnValue([
+			{ id: "glm-5", provider: "zai", name: "GLM 5" },
+			{ id: "glm-5.1", provider: "zai", name: "GLM 5.1" },
+			{ id: "qwen3:8b", provider: "ollama", name: "Qwen 3 8B" },
 		]);
-		expect(result.default).toBeNull();
-	});
 
-	it("reads authenticated models and configured default fresh each call", async () => {
-		availableModels = [
-			{ provider: "zai", id: "glm-5.1", name: "GLM 5.1" },
-		];
-		configText = JSON.stringify({ default: "zai/glm-5.1" });
-
-		const { loadModelsConfig } = await loadModelsModule();
-		await expect(loadModelsConfig()).resolves.toMatchObject({
-			default: "zai/glm-5.1",
-		});
-
-		availableModels = [
-			{
-				provider: "openai-codex",
-				id: "gpt-5-codex",
-				name: "GPT-5 Codex",
-			},
-		];
-		configText = JSON.stringify({ default: "openai-codex/gpt-5-codex" });
-
-		await expect(loadModelsConfig()).resolves.toEqual({
-			models: [
-				{
-					id: "gpt-5-codex",
-					provider: "openai-codex",
-					key: "openai-codex/gpt-5-codex",
-					name: "GPT-5 Codex",
-				},
-			],
-			default: "openai-codex/gpt-5-codex",
-		});
-		expect(readFileMock).toHaveBeenCalledTimes(2);
-		expect(modelRegistryMock).toHaveBeenCalledTimes(2);
-	});
-
-	it("still returns authenticated models when config/models.json is missing", async () => {
-		availableModels = [
-			{ provider: "zai", id: "glm-5.1", name: "GLM 5.1" },
-		];
-		readFileError = Object.assign(new Error("missing"), { code: "ENOENT" });
-
-		const { loadModelsConfig } = await loadModelsModule();
+		const { loadModelsConfig, _setRegistry } = await freshImport();
+		_setRegistry(mockRegistry);
 		const result = await loadModelsConfig();
 
-		expect(result).toEqual({
-			models: [
-				{
-					id: "glm-5.1",
-					provider: "zai",
-					key: "zai/glm-5.1",
-					name: "GLM 5.1",
-				},
-			],
-			default: null,
-		});
+		expect(result.models).toHaveLength(3);
+		expect(result.models.map((m) => m.key)).toEqual(
+			expect.arrayContaining(["zai/glm-5", "zai/glm-5.1", "ollama/qwen3:8b"]),
+		);
+		expect(result.default).toBe("zai/glm-5");
 	});
 
-	it("returns an empty list when Pi SDK discovery fails", async () => {
-		authCreateError = new Error("auth failed");
-		configText = JSON.stringify({ default: "zai/glm-5.1" });
+	it("filters to allowlist when local config has models array", async () => {
+		mockGetAvailable.mockReturnValue([
+			{ id: "glm-5", provider: "zai", name: "GLM 5" },
+			{ id: "glm-5.1", provider: "zai", name: "GLM 5.1" },
+			{ id: "qwen3:8b", provider: "ollama", name: "Qwen 3 8B" },
+		]);
 
-		const { loadModelsConfig } = await loadModelsModule();
-		await expect(loadModelsConfig()).resolves.toEqual({
-			models: [],
-			default: null,
+		readFile.mockImplementation((fp) => {
+			if (fp === CONFIG_PATH) {
+				return Promise.resolve(
+					JSON.stringify({
+						models: ["zai/glm-5.1"],
+						default: "zai/glm-5.1",
+					}),
+				);
+			}
+			return Promise.reject(
+				Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+			);
 		});
+
+		const { loadModelsConfig, _setRegistry } = await freshImport();
+		_setRegistry(mockRegistry);
+		const result = await loadModelsConfig();
+
+		expect(result.models).toHaveLength(1);
+		expect(result.models[0].key).toBe("zai/glm-5.1");
+		expect(result.default).toBe("zai/glm-5.1");
+	});
+
+	it("does not collapse to single model when Pi registry has multiple providers", async () => {
+		mockGetAvailable.mockReturnValue([
+			{ id: "glm-4.7", provider: "zai", name: "GLM 4.7" },
+			{ id: "glm-5", provider: "zai", name: "GLM 5" },
+			{ id: "glm-5.1", provider: "zai", name: "GLM 5.1" },
+			{ id: "qwen3:8b", provider: "ollama", name: "Qwen 3 8B" },
+			{ id: "hermes", provider: "ollama", name: "Hermes" },
+			{ id: "MiniMax-M2.7", provider: "minimax", name: "MiniMax M2.7" },
+		]);
+
+		const { loadModelsConfig, _setRegistry } = await freshImport();
+		_setRegistry(mockRegistry);
+		const result = await loadModelsConfig();
+
+		expect(result.models).toHaveLength(6);
+		expect(result.models.length).toBeGreaterThan(1);
+	});
+
+	it("includes OAuth models like openai-codex/gpt-5.5", async () => {
+		mockGetAvailable.mockReturnValue([
+			{ id: "glm-5.1", provider: "zai", name: "GLM 5.1" },
+			{ id: "gpt-5.5", provider: "openai-codex", name: "GPT-5.5" },
+		]);
+
+		const { loadModelsConfig, _setRegistry } = await freshImport();
+		_setRegistry(mockRegistry);
+		const result = await loadModelsConfig();
+
+		expect(result.models).toHaveLength(2);
+		const codex = result.models.find((m) => m.key === "openai-codex/gpt-5.5");
+		expect(codex).toBeDefined();
+		expect(codex.name).toBe("GPT-5.5");
+	});
+
+	it("uses Pi model name from registry", async () => {
+		mockGetAvailable.mockReturnValue([
+			{ id: "glm-5.1", provider: "zai", name: "GLM 5.1 (z.ai)" },
+		]);
+
+		const { loadModelsConfig, _setRegistry } = await freshImport();
+		_setRegistry(mockRegistry);
+		const result = await loadModelsConfig();
+
+		expect(result.models[0].name).toBe("GLM 5.1 (z.ai)");
+	});
+
+	it("returns empty list when registry is null", async () => {
+		const { loadModelsConfig, _setRegistry } = await freshImport();
+		_setRegistry(null);
+		const result = await loadModelsConfig();
+
+		expect(result.models).toEqual([]);
+		expect(result.default).toBeNull();
 	});
 });
