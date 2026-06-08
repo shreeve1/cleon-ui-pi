@@ -140,6 +140,23 @@ class SdkSessionManager {
 			}
 		}
 
+		// If a mapping pointed at a file that no longer exists on disk, treat it
+		// as a new session. Resuming a phantom path makes Pi SDK throw ENOENT
+		// from an async event handler, which pi-lens' uncaughtException guard
+		// rethrows and kills the process. Dropping the mapping here also stops
+		// it from coming back on next boot.
+		if (sessionFile && !(await this.#fileExists(sessionFile))) {
+			console.warn(
+				`[SdkSessionManager] Mapped session file missing on disk, treating session ${sessionId} as new: ${sessionFile}`,
+			);
+			const removedFromMap = this.#sessionFileMap.delete(projectKey);
+			const removedFromLegacy = this.#legacySessionFileMap.delete(sessionId);
+			if (removedFromMap || removedFromLegacy) {
+				await this.#saveSessionFileMap();
+			}
+			sessionFile = null;
+		}
+
 		// ── Final fallback: scan Pi sessions directory for a matching CLI session file ──
 		// This handles the common case where a user starts a session in the CLI and then
 		// navigates to it in the web UI. The CLI session file is never registered in
@@ -502,14 +519,33 @@ class SdkSessionManager {
 		}
 	}
 
+	async #fileExists(p) {
+		try {
+			await fs.access(p);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
 	async #loadSessionFileMap() {
 		try {
 			const data = await fs.readFile(SESSIONS_FILE, "utf8");
 			const parsed = JSON.parse(data);
 
+			let prunedCount = 0;
+
 			if (parsed && typeof parsed === "object") {
 				for (const [key, value] of Object.entries(parsed)) {
 					if (typeof value !== "string") continue;
+
+					if (!(await this.#fileExists(value))) {
+						prunedCount++;
+						console.warn(
+							`[SdkSessionManager] Pruning stale mapping (file missing): ${key} → ${value}`,
+						);
+						continue;
+					}
 
 					if (key.includes(":") && key.startsWith("/")) {
 						this.#sessionFileMap.set(key, value);
@@ -531,9 +567,13 @@ class SdkSessionManager {
 				}
 			}
 
+			if (prunedCount > 0) {
+				await this.#saveSessionFileMap();
+			}
+
 			console.log(
 				`[SdkSessionManager] Loaded ${this.#sessionFileMap.size} session mappings ` +
-					`(+ ${this.#legacySessionFileMap.size} legacy) from ${SESSIONS_FILE}`,
+					`(+ ${this.#legacySessionFileMap.size} legacy, pruned ${prunedCount}) from ${SESSIONS_FILE}`,
 			);
 		} catch (err) {
 			if (err.code === "ENOENT") {
