@@ -83,6 +83,7 @@ async function readLocalConfig() {
  * Inject a registry instance (for testing only).
  * @param {{ getAvailable: Function, refresh: Function } | null} reg
  */
+/** @public (test-only injection point) */
 export function _setRegistry(reg) {
 	if (reg === null) {
 		registry = null;

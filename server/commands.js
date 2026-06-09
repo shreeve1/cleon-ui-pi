@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import logger from "./logger.js";
 
 /**
  * Parse YAML frontmatter from a markdown file content
@@ -32,7 +33,7 @@ async function readJsonFile(filePath) {
 		return JSON.parse(await fs.readFile(filePath, "utf-8"));
 	} catch (err) {
 		if (err.code !== "ENOENT") {
-			console.warn(`[Commands] Failed to read ${filePath}:`, err.message);
+			logger.warn(`[Commands] Failed to read ${filePath}:`, err.message);
 		}
 		return {};
 	}
@@ -110,7 +111,7 @@ async function parseCommandFile(filePath) {
 			path: filePath,
 		};
 	} catch (err) {
-		console.warn(`[Commands] Failed to parse ${filePath}:`, err.message);
+		logger.warn(`[Commands] Failed to parse ${filePath}:`, err.message);
 		return null;
 	}
 }
@@ -137,7 +138,7 @@ async function parseSkillFile(filePath, source) {
 			source,
 		};
 	} catch (err) {
-		console.warn(`[Skills] Failed to parse ${filePath}:`, err.message);
+		logger.warn(`[Skills] Failed to parse ${filePath}:`, err.message);
 		return null;
 	}
 }
@@ -170,7 +171,7 @@ async function discoverCommands(directory, source) {
 	} catch (err) {
 		// Directory doesn't exist or can't be read - that's OK
 		if (err.code !== "ENOENT") {
-			console.warn(`[Commands] Error reading ${directory}:`, err.message);
+			logger.warn(`[Commands] Error reading ${directory}:`, err.message);
 		}
 	}
 
@@ -182,7 +183,7 @@ async function discoverCommands(directory, source) {
  * @param {string} projectPath - The project's filesystem path
  * @returns {Promise<Array>} Array of project command objects
  */
-export async function getProjectCommands(projectPath) {
+async function getProjectCommands(projectPath) {
 	if (!projectPath) return [];
 
 	const projectDir = path.join(projectPath, ".pi", "commands");
@@ -194,7 +195,7 @@ export async function getProjectCommands(projectPath) {
  * @param {string} projectPath - The project's filesystem path
  * @returns {Promise<Array>} Array of project skill objects
  */
-export async function getProjectSkills(projectPath) {
+async function getProjectSkills(projectPath) {
 	if (!projectPath) return [];
 
 	const skillsDir = path.join(projectPath, ".pi", "skills");
@@ -220,7 +221,7 @@ async function discoverSkillPath(skillPath, source) {
 		}
 	} catch (err) {
 		if (err.code !== "ENOENT") {
-			console.warn(`[Skills] Error reading ${skillPath}:`, err.message);
+			logger.warn(`[Skills] Error reading ${skillPath}:`, err.message);
 		}
 	}
 
@@ -274,7 +275,7 @@ async function discoverSkills(skillsDir, source, includeRootFiles = true) {
 		}
 	} catch (err) {
 		if (err.code !== "ENOENT") {
-			console.warn(`[Skills] Error reading ${skillsDir}:`, err.message);
+			logger.warn(`[Skills] Error reading ${skillsDir}:`, err.message);
 		}
 	}
 
@@ -290,7 +291,7 @@ async function discoverExtensionSkillDirs(rootDir) {
 			entries = await fs.readdir(directory, { withFileTypes: true });
 		} catch (err) {
 			if (err.code !== "ENOENT") {
-				console.warn(`[Skills] Error reading ${directory}:`, err.message);
+				logger.warn(`[Skills] Error reading ${directory}:`, err.message);
 			}
 			return;
 		}
@@ -368,7 +369,7 @@ async function getConfiguredSkillPaths(projectPath) {
  * @param {string} projectPath - Optional project path
  * @returns {Promise<Array>} Array of pi skill objects
  */
-export async function getPiSkills(projectPath = null) {
+async function getPiSkills(projectPath = null) {
 	const home = os.homedir();
 	const agentDir = path.join(home, ".pi", "agent");
 	const extensionSkillDirs = await discoverExtensionSkillDirs(
@@ -397,7 +398,7 @@ export async function getPiSkills(projectPath = null) {
  * These are markdown files that serve as reusable prompts.
  * @returns {Promise<Array>} Array of prompt template objects
  */
-export async function getPiPrompts() {
+async function getPiPrompts() {
 	const promptsDir = path.join(os.homedir(), ".pi", "agent", "prompts");
 	const prompts = [];
 
@@ -421,12 +422,12 @@ export async function getPiPrompts() {
 					source: "pi-prompt",
 				});
 			} catch (err) {
-				console.warn(`[Prompts] Failed to parse ${filePath}:`, err.message);
+				logger.warn(`[Prompts] Failed to parse ${filePath}:`, err.message);
 			}
 		}
 	} catch (err) {
 		if (err.code !== "ENOENT") {
-			console.warn(`[Prompts] Error reading ${promptsDir}:`, err.message);
+			logger.warn(`[Prompts] Error reading ${promptsDir}:`, err.message);
 		}
 	}
 

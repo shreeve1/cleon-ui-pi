@@ -14,6 +14,7 @@ import { execSync } from "child_process";
 import path from "path";
 import os from "os";
 import { publish } from "./bus.js";
+import logger from "./logger.js";
 import {
 	startSessionBuffer,
 	broadcastToSession,
@@ -272,7 +273,7 @@ export async function checkLastMessageTurnState(filePath) {
 			await fd.close();
 		}
 	} catch (err) {
-		console.error(
+		logger.error(
 			`[SessionWatcher] Error checking turn state for ${filePath}:`,
 			err.message,
 		);
@@ -363,7 +364,7 @@ export async function attachToCliSession(sessionId, username) {
 	}
 
 	// Start watching
-	console.log(
+	logger.info(
 		`[SessionWatcher] Starting file watch for CLI session ${sessionId}: ${filePath}`,
 	);
 
@@ -410,7 +411,7 @@ export async function attachToCliSession(sessionId, username) {
 		const doneEvent = { type: "done", sessionId };
 		broadcastToSession(sessionId, doneEvent);
 		publish(username, doneEvent);
-		console.log(
+		logger.info(
 			`[SessionWatcher] Session ${sessionId} — turn already complete, sent 'done' event`,
 		);
 	}
@@ -463,7 +464,7 @@ async function processNewLines(watcher) {
 	// stop the file watcher immediately to prevent duplicate events.
 	// The SDK emits its own events through the broadcast system.
 	if (isOwnedBySdk(watcher.sessionId)) {
-		console.log(
+		logger.info(
 			`[SessionWatcher] Session ${watcher.sessionId} — SDK took over, stopping file watcher`,
 		);
 		stopWatcher(watcher.sessionId);
@@ -496,7 +497,7 @@ async function processNewLines(watcher) {
 			await fd.close();
 		}
 	} catch (err) {
-		console.error(
+		logger.error(
 			`[SessionWatcher] Error reading ${watcher.filePath}:`,
 			err.message,
 		);
@@ -683,7 +684,7 @@ function scheduleTurnComplete(watcher) {
 	watcher.turnCompleteTimer = setTimeout(() => {
 		// Only send done if we haven't already for this turn
 		if (!watcher.turnComplete) {
-			console.log(
+			logger.info(
 				`[SessionWatcher] Session ${watcher.sessionId} — turn complete (no activity for ${TURN_COMPLETE_DELAY_MS}ms)`,
 			);
 			watcher.turnComplete = true;
@@ -735,7 +736,7 @@ function resetIdleTimer(watcher) {
 function checkAndMaybeStop(watcher) {
 	if (isPiProcessRunning(watcher.projectPath)) {
 		// Pi is still running — keep watching, check again later
-		console.log(
+		logger.info(
 			`[SessionWatcher] Session ${watcher.sessionId} file idle but pi process still running`,
 		);
 		watcher.idleTimer = setTimeout(() => {
@@ -743,7 +744,7 @@ function checkAndMaybeStop(watcher) {
 		}, PROCESS_CHECK_INTERVAL_MS);
 		if (watcher.idleTimer.unref) watcher.idleTimer.unref();
 	} else {
-		console.log(
+		logger.info(
 			`[SessionWatcher] Session ${watcher.sessionId} — pi process no longer running, stopping watch`,
 		);
 		stopWatcher(watcher.sessionId);
@@ -794,7 +795,7 @@ function stopWatcher(sessionId) {
 	setTimeout(() => clearSessionBuffer(sessionId), 2000);
 
 	activeWatchers.delete(sessionId);
-	console.log(`[SessionWatcher] Stopped watching ${sessionId}`);
+	logger.info(`[SessionWatcher] Stopped watching ${sessionId}`);
 }
 
 /**

@@ -10,6 +10,7 @@ import {
 	encode as encodePiDirName,
 	decode as decodePiDirName,
 } from "./pi-path.js";
+import logger from "./logger.js";
 
 // ─── Constants ──────────────────────────────────────────────────────
 
@@ -80,7 +81,7 @@ class SdkSessionManager {
 			this.#cleanupInterval.unref();
 		}
 
-		console.log(
+		logger.info(
 			`[SdkSessionManager] Started — ${this.#sessionFileMap.size} known sessions loaded, idle timeout ${IDLE_TIMEOUT_MS}ms, max concurrent ${MAX_CONCURRENT}`,
 		);
 	}
@@ -103,7 +104,7 @@ class SdkSessionManager {
 		if (existing) {
 			// Verify project path matches
 			if (existing.projectPath !== projectPath) {
-				console.error(
+				logger.error(
 					`[SdkSessionManager] Session ${sessionId} project mismatch! ` +
 						`Live session is for "${existing.projectPath}" but requested for "${projectPath}". ` +
 						`Destroying incompatible session and creating new one.`,
@@ -113,7 +114,7 @@ class SdkSessionManager {
 			} else {
 				existing.lastActivity = new Date();
 				this.#clearIdleTimer(existing);
-				console.log(`[SdkSessionManager] Reusing live session ${sessionId}`);
+				logger.info(`[SdkSessionManager] Reusing live session ${sessionId}`);
 				return {
 					session: existing.session,
 					sessionFile: existing.sessionFile,
@@ -132,7 +133,7 @@ class SdkSessionManager {
 				const legacyProjectPath =
 					this.#extractProjectFromSessionFile(sessionFile);
 				if (legacyProjectPath && legacyProjectPath !== projectPath) {
-					console.warn(
+					logger.warn(
 						`[SdkSessionManager] Legacy session ${sessionId} project mismatch. Treating as new session.`,
 					);
 					sessionFile = null;
@@ -146,7 +147,7 @@ class SdkSessionManager {
 		// rethrows and kills the process. Dropping the mapping here also stops
 		// it from coming back on next boot.
 		if (sessionFile && !(await this.#fileExists(sessionFile))) {
-			console.warn(
+			logger.warn(
 				`[SdkSessionManager] Mapped session file missing on disk, treating session ${sessionId} as new: ${sessionFile}`,
 			);
 			const removedFromMap = this.#sessionFileMap.delete(projectKey);
@@ -169,7 +170,7 @@ class SdkSessionManager {
 				// Cache it immediately so future requests skip the scan
 				this.#sessionFileMap.set(projectKey, sessionFile);
 				await this.#saveSessionFileMap();
-				console.log(
+				logger.info(
 					`[SdkSessionManager] Session ${sessionId} — found CLI session file: ${sessionFile}`,
 				);
 			}
@@ -210,7 +211,7 @@ class SdkSessionManager {
 			this.#sessionFileMap.set(projectKey, sessionFile);
 			this.#legacySessionFileMap.delete(sessionId);
 			await this.#saveSessionFileMap();
-			console.log(
+			logger.info(
 				`[SdkSessionManager] Session ${sessionId} file: ${sessionFile} (project: ${projectPath})`,
 			);
 		} else if (
@@ -218,12 +219,12 @@ class SdkSessionManager {
 			actualSessionFile &&
 			actualSessionFile !== sessionFile
 		) {
-			console.error(
+			logger.error(
 				`[SdkSessionManager] WARNING: Session ${sessionId} resume may have failed! ` +
 					`Expected: ${sessionFile}, Got: ${actualSessionFile}. Keeping original mapping.`,
 			);
 		} else if (!isNew) {
-			console.log(
+			logger.info(
 				`[SdkSessionManager] Session ${sessionId} resumed from ${sessionFile} (project: ${projectPath})`,
 			);
 		}
@@ -239,7 +240,7 @@ class SdkSessionManager {
 		};
 
 		this.#sessions.set(sessionId, entry);
-		console.log(
+		logger.info(
 			`[SdkSessionManager] ${isNew ? "Created new" : "Resumed"} session ${sessionId} ` +
 				`(${this.#sessions.size}/${MAX_CONCURRENT} active)`,
 		);
@@ -265,7 +266,7 @@ class SdkSessionManager {
 		this.#clearIdleTimer(entry);
 
 		entry.idleTimer = setTimeout(() => {
-			console.log(
+			logger.info(
 				`[SdkSessionManager] Session ${sessionId} idle timeout — destroying`,
 			);
 			this.#notifyEvicted(sessionId, entry, "idle-timeout");
@@ -290,14 +291,14 @@ class SdkSessionManager {
 		try {
 			entry.session.dispose();
 		} catch (err) {
-			console.warn(
+			logger.warn(
 				`[SdkSessionManager] Error disposing session ${sessionId}:`,
 				err.message,
 			);
 		}
 
 		this.#sessions.delete(sessionId);
-		console.log(
+		logger.info(
 			`[SdkSessionManager] Destroyed session ${sessionId} (${this.#sessions.size}/${MAX_CONCURRENT} active)`,
 		);
 	}
@@ -306,7 +307,7 @@ class SdkSessionManager {
 	 * Gracefully destroy all live sessions.
 	 */
 	async destroyAll() {
-		console.log(
+		logger.info(
 			`[SdkSessionManager] Destroying all ${this.#sessions.size} sessions`,
 		);
 
@@ -322,7 +323,7 @@ class SdkSessionManager {
 		await Promise.allSettled(destroyPromises);
 
 		this.#started = false;
-		console.log("[SdkSessionManager] All sessions destroyed");
+		logger.info("[SdkSessionManager] All sessions destroyed");
 	}
 
 	/**
@@ -355,7 +356,7 @@ class SdkSessionManager {
 			const idleMs = now - entry.lastActivity.getTime();
 
 			if (idleMs > IDLE_TIMEOUT_MS && !entry.idleTimer) {
-				console.log(
+				logger.info(
 					`[SdkSessionManager] Cleanup: session ${sessionId} idle for ${Math.round(idleMs / 1000)}s`,
 				);
 				this.destroy(sessionId);
@@ -364,7 +365,7 @@ class SdkSessionManager {
 		}
 
 		if (cleaned > 0) {
-			console.log(
+			logger.info(
 				`[SdkSessionManager] Cleanup: removed ${cleaned} sessions (${this.#sessions.size} remaining)`,
 			);
 		}
@@ -489,7 +490,7 @@ class SdkSessionManager {
 		}
 
 		if (oldestId) {
-			console.log(
+			logger.info(
 				`[SdkSessionManager] Evicting idle session ${oldestId} to make room`,
 			);
 			this.#notifyEvicted(oldestId, oldestEntry, "capacity");
@@ -512,7 +513,7 @@ class SdkSessionManager {
 				reason,
 			});
 		} catch (err) {
-			console.warn(
+			logger.warn(
 				`[SdkSessionManager] Failed to publish session-evicted for ${sessionId}:`,
 				err.message,
 			);
@@ -541,7 +542,7 @@ class SdkSessionManager {
 
 					if (!(await this.#fileExists(value))) {
 						prunedCount++;
-						console.warn(
+						logger.warn(
 							`[SdkSessionManager] Pruning stale mapping (file missing): ${key} → ${value}`,
 						);
 						continue;
@@ -554,12 +555,12 @@ class SdkSessionManager {
 						if (projectPath) {
 							const newKey = this.#makeKey(projectPath, key);
 							this.#sessionFileMap.set(newKey, value);
-							console.log(
+							logger.info(
 								`[SdkSessionManager] Migrated legacy session ${key} → ${newKey}`,
 							);
 						} else {
 							this.#legacySessionFileMap.set(key, value);
-							console.log(
+							logger.info(
 								`[SdkSessionManager] Keeping legacy session ${key} (could not extract project)`,
 							);
 						}
@@ -571,17 +572,17 @@ class SdkSessionManager {
 				await this.#saveSessionFileMap();
 			}
 
-			console.log(
+			logger.info(
 				`[SdkSessionManager] Loaded ${this.#sessionFileMap.size} session mappings ` +
 					`(+ ${this.#legacySessionFileMap.size} legacy, pruned ${prunedCount}) from ${SESSIONS_FILE}`,
 			);
 		} catch (err) {
 			if (err.code === "ENOENT") {
-				console.log(
+				logger.info(
 					`[SdkSessionManager] No existing sessions file at ${SESSIONS_FILE}`,
 				);
 			} else {
-				console.warn(
+				logger.warn(
 					`[SdkSessionManager] Failed to load sessions file:`,
 					err.message,
 				);
@@ -610,7 +611,7 @@ class SdkSessionManager {
 					/* ignore cleanup failure */
 				}
 			}
-			console.error(
+			logger.error(
 				`[SdkSessionManager] Failed to save sessions file:`,
 				err.message,
 			);
@@ -621,4 +622,3 @@ class SdkSessionManager {
 // ─── Singleton export ───────────────────────────────────────────────
 
 export { SdkSessionManager };
-export default SdkSessionManager;

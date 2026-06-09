@@ -262,6 +262,54 @@ function getLanguageFromPath(filePath) {
 }
 
 /**
+ * Resolve actual filesystem path for a project name.
+ * Looks up Pi session dir via codec; falls back to raw name.
+ */
+async function resolveProjectPath(project) {
+	const piDirName = await resolvePiDirName(project);
+	if (piDirName) {
+		const piDir = path.join(PI_SESSIONS, piDirName);
+		return await extractProjectPath(piDir, piDirName);
+	}
+	return project;
+}
+
+const GLOB_IGNORE_PATTERNS = [
+	"**/node_modules/**",
+	"**/.git/**",
+	"**/.DS_Store",
+	"**/dist/**",
+	"**/build/**",
+	"**/.next/**",
+	"**/coverage/**",
+	"**/__pycache__/**",
+	"**/.pytest_cache/**",
+	"**/vendor/**",
+	"**/.venv/**",
+	"**/venv/**",
+	"**/*.min.js",
+	"**/*.min.css",
+	"**/.env.local",
+	"**/.env.*.local",
+	"**/Library/**",
+	"**/Applications/**",
+	"**/Desktop/**",
+	"**/Documents/**",
+	"**/Downloads/**",
+	"**/Movies/**",
+	"**/Music/**",
+	"**/Pictures/**",
+	"**/.Trash/**",
+	"**/.localized/**",
+	"**/System/**",
+	"**/bin/**",
+	"**/etc/**",
+	"**/usr/**",
+	"**/tmp/**",
+	"**/var/**",
+];
+
+/**
  * Build hierarchical tree structure from flat file list
  */
 function buildFileTree(files) {
@@ -303,17 +351,7 @@ router.get("/:project/tree", async (req, res) => {
 	const { project } = req.params;
 
 	try {
-		// Get the actual project path from Pi sessions
-		const piDirName = await resolvePiDirName(project);
-		let actualPath;
-
-		if (piDirName) {
-			const piDir = path.join(PI_SESSIONS, piDirName);
-			actualPath = await extractProjectPath(piDir, piDirName);
-		} else {
-			// Treat project as a direct path
-			actualPath = project;
-		}
+		const actualPath = await resolveProjectPath(project);
 
 		// Verify project exists
 		try {
@@ -327,42 +365,8 @@ router.get("/:project/tree", async (req, res) => {
 			cwd: actualPath,
 			absolute: false,
 			nodir: false,
-			dot: true, // Include hidden files
-			ignore: [
-				"**/node_modules/**",
-				"**/.git/**",
-				"**/.DS_Store",
-				"**/dist/**",
-				"**/build/**",
-				"**/.next/**",
-				"**/coverage/**",
-				"**/__pycache__/**",
-				"**/.pytest_cache/**",
-				"**/vendor/**",
-				"**/.venv/**",
-				"**/venv/**",
-				"**/*.min.js",
-				"**/*.min.css",
-				"**/.env.local",
-				"**/.env.*.local",
-				// System directories to skip
-				"**/Library/**",
-				"**/Applications/**",
-				"**/Desktop/**",
-				"**/Documents/**",
-				"**/Downloads/**",
-				"**/Movies/**",
-				"**/Music/**",
-				"**/Pictures/**",
-				"**/.Trash/**",
-				"**/.localized/**",
-				"**/System/**",
-				"**/bin/**",
-				"**/etc/**",
-				"**/usr/**",
-				"**/tmp/**",
-				"**/var/**",
-			],
+			dot: true,
+			ignore: GLOB_IGNORE_PATTERNS,
 		});
 
 		// Limit file count
@@ -393,17 +397,7 @@ router.get("/:project/ls", async (req, res) => {
 	const dirPath = req.query.path || "";
 
 	try {
-		// Get the actual project path from Pi sessions
-		const piDirName = await resolvePiDirName(project);
-		let actualPath;
-
-		if (piDirName) {
-			const piDir = path.join(PI_SESSIONS, piDirName);
-			actualPath = await extractProjectPath(piDir, piDirName);
-		} else {
-			// Treat project as a direct path
-			actualPath = project;
-		}
+		const actualPath = await resolveProjectPath(project);
 
 		const targetPath = dirPath ? path.join(actualPath, dirPath) : actualPath;
 
@@ -424,40 +418,8 @@ router.get("/:project/ls", async (req, res) => {
 			cwd: targetPath,
 			absolute: false,
 			nodir: false,
-			dot: true, // Include hidden files
-			ignore: [
-				"**/node_modules/**",
-				"**/.git/**",
-				"**/.DS_Store",
-				"**/dist/**",
-				"**/build/**",
-				"**/.next/**",
-				"**/coverage/**",
-				"**/__pycache__/**",
-				"**/.pytest_cache/**",
-				"**/vendor/**",
-				"**/.venv/**",
-				"**/venv/**",
-				"**/.env.local",
-				"**/.env.*.local",
-				// System directories to skip
-				"**/Library/**",
-				"**/Applications/**",
-				"**/Desktop/**",
-				"**/Documents/**",
-				"**/Downloads/**",
-				"**/Movies/**",
-				"**/Music/**",
-				"**/Pictures/**",
-				"**/.Trash/**",
-				"**/.localized/**",
-				"**/System/**",
-				"**/bin/**",
-				"**/etc/**",
-				"**/usr/**",
-				"**/tmp/**",
-				"**/var/**",
-			],
+			dot: true,
+			ignore: GLOB_IGNORE_PATTERNS,
 		});
 
 		const ignorePatterns = [".env.local", ".env.*.local"];
@@ -515,17 +477,7 @@ router.get("/:project/*", async (req, res) => {
 	}
 
 	try {
-		// Get the actual project path from Pi sessions
-		const piDirName = await resolvePiDirName(project);
-		let actualPath;
-
-		if (piDirName) {
-			const piDir = path.join(PI_SESSIONS, piDirName);
-			actualPath = await extractProjectPath(piDir, piDirName);
-		} else {
-			// Treat project as a direct path
-			actualPath = project;
-		}
+		const actualPath = await resolveProjectPath(project);
 
 		const safePath = await validateFilePath(actualPath, relativePath);
 
@@ -631,17 +583,7 @@ router.put("/:project/*", async (req, res) => {
 	}
 
 	try {
-		// Get the actual project path from Pi sessions
-		const piDirName = await resolvePiDirName(project);
-		let actualPath;
-
-		if (piDirName) {
-			const piDir = path.join(PI_SESSIONS, piDirName);
-			actualPath = await extractProjectPath(piDir, piDirName);
-		} else {
-			// Treat project as a direct path
-			actualPath = project;
-		}
+		const actualPath = await resolveProjectPath(project);
 
 		const safePath = await validateFilePath(actualPath, relativePath);
 

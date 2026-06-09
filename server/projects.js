@@ -3,6 +3,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
 import { glob } from "glob";
+import logger from "./logger.js";
 import { getSdkSessionManager } from "./session-manager-instance.js";
 import {
 	encode as encodePiDirName,
@@ -65,7 +66,7 @@ router.get("/search", async (req, res) => {
 			}
 		} catch (err) {
 			if (err.code !== "ENOENT") {
-				console.error("[Projects] Error reading Pi sessions:", err);
+				logger.error("[Projects] Error reading Pi sessions:", err);
 			}
 		}
 
@@ -74,7 +75,7 @@ router.get("/search", async (req, res) => {
 
 		res.json(projects.slice(0, MAX_PROJECTS));
 	} catch (err) {
-		console.error("[Projects] Search error:", err);
+		logger.error("[Projects] Search error:", err);
 		res.status(500).json({ error: "Failed to search projects" });
 	}
 });
@@ -136,7 +137,7 @@ router.get("/:name/sessions", async (req, res) => {
 				sessions.push(...piSessions);
 			} catch (err) {
 				if (err.code !== "ENOENT") {
-					console.error("[Projects] Error reading Pi sessions:", err);
+					logger.error("[Projects] Error reading Pi sessions:", err);
 				}
 			}
 		}
@@ -148,7 +149,7 @@ router.get("/:name/sessions", async (req, res) => {
 
 		res.json(sessions.slice(0, MAX_SESSIONS));
 	} catch (err) {
-		console.error("[Projects] Sessions error:", err);
+		logger.error("[Projects] Sessions error:", err);
 		res.status(500).json({ error: "Failed to load sessions" });
 	}
 });
@@ -161,16 +162,16 @@ router.get("/:name/sessions/:sessionId/messages", async (req, res) => {
 	const { name, sessionId } = req.params;
 	const limit = parseInt(req.query.limit) || 100;
 
-	console.log(
+	logger.info(
 		`[Projects] GET messages for project="${name}" sessionId="${sessionId}"`,
 	);
 
 	try {
 		const messages = await getSessionMessages(name, sessionId, limit);
-		console.log(`[Projects] Returning ${messages.length} messages`);
+		logger.info(`[Projects] Returning ${messages.length} messages`);
 		res.json({ messages });
 	} catch (err) {
-		console.error("[Projects] Messages error:", err);
+		logger.error("[Projects] Messages error:", err);
 		res.status(500).json({ error: "Failed to load messages" });
 	}
 });
@@ -322,12 +323,12 @@ function extractPiTextContent(content) {
 // ─── Helpers: Session messages ──────────────────────────────────────
 
 async function getSessionMessages(projectName, sessionId, limit = 100) {
-	console.log(
+	logger.info(
 		`[getSessionMessages] projectName="${projectName}" sessionId="${sessionId}"`,
 	);
 
 	const piMessages = await getPiSessionMessages(projectName, sessionId, limit);
-	console.log(`[getSessionMessages] Pi: ${piMessages.length} messages`);
+	logger.info(`[getSessionMessages] Pi: ${piMessages.length} messages`);
 
 	piMessages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 	return piMessages.slice(-limit);
@@ -666,7 +667,7 @@ router.get("/:name/files/search", async (req, res) => {
 
 		res.json({ files: safeFiles.slice(0, MAX_FILE_RESULTS) });
 	} catch (err) {
-		console.error("[Projects] File search error:", err);
+		logger.error("[Projects] File search error:", err);
 		res.status(500).json({ error: "Failed to search files" });
 	}
 });

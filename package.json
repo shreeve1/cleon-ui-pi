@@ -2,6 +2,7 @@
   "name": "cleon-ui",
   "version": "1.0.0",
   "description": "Cleon UI - Lightweight mobile-first web interface for Claude Code with retro neon aesthetics",
+  "author": "James Schriever",
   "type": "module",
   "main": "server/index.js",
   "scripts": {
@@ -24,15 +25,12 @@
     "glob": "^13.0.1",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
-    "monaco-editor": "^0.45.0",
     "multer": "^2.0.2",
     "pdf-parse": "^2.4.5",
     "winston": "^3.19.0",
     "ws": "^8.14.2"
   },
   "devDependencies": {
-    "@playwright/test": "^1.58.2",
-    "playwright": "^1.58.2",
     "vitest": "^4.0.18"
   }
 }

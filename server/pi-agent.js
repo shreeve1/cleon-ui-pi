@@ -11,6 +11,7 @@ import { createExtensionUIBridge } from "./extension-ui-bridge.js";
 import { encode as encodePiDirName } from "./pi-path.js";
 import { createEventTransformer } from "./event-transformer.js";
 import { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
+import logger from "./logger.js";
 
 // ─── Active sessions ────────────────────────────────────────────────
 
@@ -67,7 +68,7 @@ export async function handleChat(msg, ws, username) {
 						`\n\n[User attached an image: ${att.name}. Please use the Read tool to view the image at: ${relativePath}]`,
 					);
 				} catch (err) {
-					console.error("[Pi] Failed to save temp image:", err);
+					logger.error("[Pi] Failed to save temp image:", err);
 					textAttachments.push(
 						`\n\n[User tried to attach an image: ${att.name}, but it failed to process]`,
 					);
@@ -94,10 +95,10 @@ export async function handleChat(msg, ws, username) {
 	let unsubscribeEvents = null;
 
 	try {
-		console.log(
+		logger.info(
 			`[Pi] Chat - project: ${projectPath}, session: ${currentSessionId}`,
 		);
-		console.log(`[Pi] Prompt length: ${prompt.length} chars`);
+		logger.info(`[Pi] Prompt length: ${prompt.length} chars`);
 
 		// Get or create persistent SDK session
 		const manager = getSdkSessionManager();
@@ -122,7 +123,7 @@ export async function handleChat(msg, ws, username) {
 
 		// Bind extensions once per session; on subsequent turns just swap the uiContext
 		const alreadyBound = !!session._extensionUIContext;
-		console.log(
+		logger.info(
 			`[Pi] Session ${currentSessionId} — extensions already bound: ${alreadyBound}`,
 		);
 		if (!alreadyBound) {
@@ -137,7 +138,7 @@ export async function handleChat(msg, ws, username) {
 							: typeof err === "object" && err !== null
 								? { ...err, errorType: typeof err }
 								: { error: err, errorType: typeof err };
-					console.error("[Pi] Extension error", {
+					logger.error("[Pi] Extension error", {
 						sessionId: currentSessionId,
 						error: errorDetails,
 					});
@@ -194,7 +195,7 @@ export async function handleChat(msg, ws, username) {
 				const modelRegistry = new ModelRegistry(authStorage);
 
 				if (typeof modelRegistry.getAvailable !== "function") {
-					console.warn(
+					logger.warn(
 						`[Pi] Model registry API has changed (getAvailable method not found), using default model`,
 					);
 				} else {
@@ -204,15 +205,15 @@ export async function handleChat(msg, ws, username) {
 					);
 					if (model) {
 						await session.setModel(model);
-						console.log(`[Pi] Model set to ${msg.model}`);
+						logger.info(`[Pi] Model set to ${msg.model}`);
 					} else {
-						console.warn(
+						logger.warn(
 							`[Pi] Model ${msg.model} not authenticated or not found, using default model`,
 						);
 					}
 				}
 			} catch (err) {
-				console.warn(
+				logger.warn(
 					`[Pi] Failed to set model ${msg.model}: ${err.message || err}`,
 				);
 				// Don't fail the chat — continue with default model
@@ -322,10 +323,10 @@ export async function handleChat(msg, ws, username) {
 		await session.prompt(prompt);
 
 		// Turn is definitively done
-		console.log(`[Pi] Query complete - session: ${currentSessionId}`);
+		logger.info(`[Pi] Query complete - session: ${currentSessionId}`);
 		sendMessage(ws, { type: "done", sessionId: currentSessionId }, username);
 	} catch (err) {
-		console.error("[Pi] Query error:", err);
+		logger.error("[Pi] Query error:", err);
 
 		const errMsg = err.message || "";
 		const isAbort =
@@ -333,7 +334,7 @@ export async function handleChat(msg, ws, username) {
 
 		// Don't send error message for aborts - the abort-result message handles UI state
 		if (isAbort) {
-			console.log(`[Pi] Query aborted - session: ${currentSessionId}`);
+			logger.info(`[Pi] Query aborted - session: ${currentSessionId}`);
 			// Still send 'done' so the frontend properly finishes streaming
 			sendMessage(ws, { type: "done", sessionId: currentSessionId }, username);
 		} else {
@@ -402,7 +403,7 @@ export async function handleAbort(sessionId) {
 	const sessionInfo = activeSessions.get(sessionId);
 	if (sessionInfo?.session) {
 		try {
-			console.log(`[Pi] Aborting session: ${sessionId}`);
+			logger.info(`[Pi] Aborting session: ${sessionId}`);
 			await sessionInfo.session.abort();
 
 			if (sessionInfo.activityTracker) {
@@ -412,7 +413,7 @@ export async function handleAbort(sessionId) {
 
 			return true;
 		} catch (err) {
-			console.error(`[Pi] Abort error for ${sessionId}:`, err);
+			logger.error(`[Pi] Abort error for ${sessionId}:`, err);
 			return false;
 		}
 	}
@@ -422,16 +423,16 @@ export async function handleAbort(sessionId) {
 	const poolEntry = manager.get(sessionId);
 	if (poolEntry?.session) {
 		try {
-			console.log(`[Pi] Aborting pooled session: ${sessionId}`);
+			logger.info(`[Pi] Aborting pooled session: ${sessionId}`);
 			await poolEntry.session.abort();
 			return true;
 		} catch (err) {
-			console.error(`[Pi] Abort error for pooled ${sessionId}:`, err);
+			logger.error(`[Pi] Abort error for pooled ${sessionId}:`, err);
 			return false;
 		}
 	}
 
-	console.log(`[Pi] Abort: session ${sessionId} not found`);
+	logger.info(`[Pi] Abort: session ${sessionId} not found`);
 	return false;
 }
 
@@ -441,23 +442,12 @@ export async function handleAbort(sessionId) {
 export function isSessionActive(sessionId) {
 	return activeSessions.has(sessionId);
 }
-
-/**
- * Resubscribe to an active session with a new WebSocket.
- */
-export function resubscribeSession(sessionId, newWs) {
-	const sessionInfo = activeSessions.get(sessionId);
-	if (!sessionInfo) return false;
-	sessionInfo.ws = newWs;
-	return true;
-}
-
 /**
  * Handle question response from frontend.
  * Routes the answer through the extension UI bridge.
  */
 export async function handleQuestionResponse(sessionId, toolUseId, answers) {
-	console.log(`[Pi] Received question response for ${toolUseId}`);
+	logger.info(`[Pi] Received question response for ${toolUseId}`);
 
 	const sessionInfo = activeSessions.get(sessionId);
 	if (sessionInfo?.bridge) {
@@ -465,7 +455,7 @@ export async function handleQuestionResponse(sessionId, toolUseId, answers) {
 		return true;
 	}
 
-	console.log(`[Pi] No active session with bridge for ${sessionId}`);
+	logger.info(`[Pi] No active session with bridge for ${sessionId}`);
 	return false;
 }
 
@@ -479,9 +469,8 @@ export async function handlePlanResponse(
 	_approved,
 	_feedback,
 ) {
-	console.log(`[Pi] Plan response received (not applicable for Pi backend)`);
+	logger.info(`[Pi] Plan response received (not applicable for Pi backend)`);
 	return false;
 }
 
 // Re-export transformer for testing
-export { createEventTransformer } from "./event-transformer.js";
