@@ -12,6 +12,8 @@ const sessionMessageBuffers = new Map();
 const sessionBufferBytes = new Map();
 // Map of sessionId -> number (count of overflow events for metrics)
 const sessionOverflowCounts = new Map();
+// Map of sessionId -> number (monotonic generation for guarded delayed clears)
+const sessionBufferGenerations = new Map();
 
 const MAX_BUFFER_SIZE = 1000;
 const MAX_BUFFER_BYTES = 5 * 1024 * 1024; // 5MB
@@ -86,10 +88,13 @@ export function broadcastToSession(sessionId, message) {
  * @param {string} sessionId - The session ID to buffer
  */
 export function startSessionBuffer(sessionId) {
+	const generation = (sessionBufferGenerations.get(sessionId) || 0) + 1;
 	sessionMessageBuffers.set(sessionId, []);
 	sessionBufferBytes.set(sessionId, 0);
 	sessionOverflowCounts.set(sessionId, 0);
+	sessionBufferGenerations.set(sessionId, generation);
 	logger.info(`[Broadcast] Started message buffer for session ${sessionId}`);
+	return generation;
 }
 
 /**
@@ -149,7 +154,14 @@ export function hasActiveBuffer(sessionId) {
  * Clear the message buffer for a session
  * @param {string} sessionId - The session ID to clear buffer for
  */
-export function clearSessionBuffer(sessionId) {
+export function clearSessionBuffer(sessionId, expectedGeneration = null) {
+	if (
+		expectedGeneration != null &&
+		sessionBufferGenerations.get(sessionId) !== expectedGeneration
+	) {
+		return false;
+	}
+
 	const buffer = sessionMessageBuffers.get(sessionId);
 	const overflowCount = sessionOverflowCounts.get(sessionId) || 0;
 	if (buffer) {
@@ -160,4 +172,22 @@ export function clearSessionBuffer(sessionId) {
 	sessionMessageBuffers.delete(sessionId);
 	sessionBufferBytes.delete(sessionId);
 	sessionOverflowCounts.delete(sessionId);
+	sessionBufferGenerations.delete(sessionId);
+	return !!buffer;
+}
+
+export function getBroadcastStats() {
+	let bytes = 0;
+	let messages = 0;
+	let overflows = 0;
+	for (const value of sessionBufferBytes.values()) bytes += value;
+	for (const buffer of sessionMessageBuffers.values())
+		messages += buffer.length;
+	for (const count of sessionOverflowCounts.values()) overflows += count;
+	return {
+		buffers: sessionMessageBuffers.size,
+		messages,
+		bytes,
+		overflows,
+	};
 }

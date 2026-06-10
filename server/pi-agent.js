@@ -2,7 +2,12 @@ import { randomUUID } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 import { taskManager, broadcastTaskUpdate } from "./tasks.js";
-import { broadcastToSession, startSessionBuffer } from "./broadcast.js";
+import {
+	broadcastToSession,
+	clearSessionBuffer,
+	getBroadcastStats,
+	startSessionBuffer,
+} from "./broadcast.js";
 import { publish } from "./bus.js";
 import { createActivityTracker } from "./activity.js";
 import { register, setStatus } from "./session-registry.js";
@@ -30,6 +35,21 @@ function sendMessage(ws, data, username) {
 			ws.send(JSON.stringify(data));
 		}
 	}
+}
+
+function getMemorySnapshot(manager = getSdkSessionManager()) {
+	const memory = process.memoryUsage();
+	return {
+		rss: memory.rss,
+		heapUsed: memory.heapUsed,
+		activeSessions: activeSessions.size,
+		sdkSessions: manager.size,
+		broadcast: getBroadcastStats(),
+	};
+}
+
+export function getActiveSessionCount() {
+	return activeSessions.size;
 }
 
 // ─── Exported API ───────────────────────────────────────────────────
@@ -93,6 +113,7 @@ export async function handleChat(msg, ws, username) {
 	};
 
 	let unsubscribeEvents = null;
+	let bufferGeneration = null;
 
 	try {
 		logger.info(
@@ -110,6 +131,7 @@ export async function handleChat(msg, ws, username) {
 
 		const { session, sessionFile } = sessionBundle;
 		sessionInfo.session = session;
+		logger.info("[Pi] Chat memory start", getMemorySnapshot(manager));
 
 		// Create extension UI bridge for this turn
 		// Wrap sendMessage so the bridge can call sendBridgeMessage(data) without needing ws
@@ -151,7 +173,7 @@ export async function handleChat(msg, ws, username) {
 
 		// Register session in active sessions map and session registry
 		activeSessions.set(currentSessionId, sessionInfo);
-		startSessionBuffer(currentSessionId);
+		bufferGeneration = startSessionBuffer(currentSessionId);
 		register(currentSessionId, {
 			username,
 			projectPath,
@@ -383,6 +405,15 @@ export async function handleChat(msg, ws, username) {
 			sessionId: currentSessionId,
 			status: "idle",
 		});
+
+		logger.info("[Pi] Chat memory end", getMemorySnapshot(manager));
+
+		if (bufferGeneration != null) {
+			const clearTimer = setTimeout(() => {
+				clearSessionBuffer(currentSessionId, bufferGeneration);
+			}, 2000);
+			clearTimer.unref?.();
+		}
 
 		// Clean up temp images
 		for (const tempPath of tempImagePaths) {

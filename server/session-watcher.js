@@ -196,6 +196,51 @@ export function evaluateStaleStreaming(turnState, now = Date.now()) {
 }
 
 /**
+ * Decide whether attach should recover a registry entry stuck in streaming.
+ * Used before the attach route tries replay/CLI detection after a PM2 crash.
+ *
+ * @param {{ registryStatus: string|null|undefined, isActive: boolean, sessionFile: string|null|undefined, turnState: { lastRole: string|null, timestamp: Date|null, stopReason: string|null, fileMtimeMs: number|null }|null }} input
+ * @param {number} [now=Date.now()]
+ * @returns {{ recover: boolean, reason: 'missing-session-file'|'unusable-turn-state'|'message-age'|'file-age'|null, messageQuietMs: number|null, fileQuietMs: number|null }}
+ */
+export function evaluateAttachStaleRecovery(input, now = Date.now()) {
+	if (input.registryStatus !== "streaming" || input.isActive) {
+		return {
+			recover: false,
+			reason: null,
+			messageQuietMs: null,
+			fileQuietMs: null,
+		};
+	}
+
+	if (!input.sessionFile) {
+		return {
+			recover: true,
+			reason: "missing-session-file",
+			messageQuietMs: null,
+			fileQuietMs: null,
+		};
+	}
+
+	if (!input.turnState || input.turnState.fileMtimeMs == null) {
+		return {
+			recover: true,
+			reason: "unusable-turn-state",
+			messageQuietMs: null,
+			fileQuietMs: null,
+		};
+	}
+
+	const decision = evaluateStaleStreaming(input.turnState, now);
+	return {
+		recover: decision.stale,
+		reason: decision.reason,
+		messageQuietMs: decision.messageQuietMs,
+		fileQuietMs: decision.fileQuietMs,
+	};
+}
+
+/**
  * Check the last message in a session file to determine turn state.
  * Reads the last ~200KB of the file and parses JSONL entries to find
  * the last message and its role/timestamp. Skips partial lines at the

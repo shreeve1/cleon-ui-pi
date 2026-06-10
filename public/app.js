@@ -1268,26 +1268,38 @@ function showAuthError(msg) {
 
 function connectWebSocket() {
 	if (!hasValidToken()) return;
-	if (state.ws?.readyState === WebSocket.OPEN) return;
+	if (
+		state.ws?.readyState === WebSocket.OPEN ||
+		state.ws?.readyState === WebSocket.CONNECTING
+	) {
+		return;
+	}
 
 	const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-	state.ws = new WebSocket(
+	const ws = new WebSocket(
 		`${protocol}//${location.host}?token=${state.token}`,
 	);
+	state.ws = ws;
 
-	state.ws.onopen = () => {
+	ws.onopen = () => {
+		if (state.ws !== ws) return;
 		console.log("[WS] Connected (command channel)");
 		state.wsReconnectAttempts = 0;
 	};
 
-	state.ws.onclose = () => {
+	ws.onclose = () => {
+		if (state.ws !== ws) return;
 		console.log("[WS] Disconnected");
+		state.ws = null;
 		state.wsReconnectAttempts++;
-		const delay = Math.min(1000 * 2 ** state.wsReconnectAttempts, 30000);
+		const delay = Math.min(
+			1000 * 2 ** state.wsReconnectAttempts,
+			WS_RECONNECT_MAX_DELAY,
+		);
 		setTimeout(connectWebSocket, delay);
 	};
 
-	state.ws.onerror = (err) => {
+	ws.onerror = (err) => {
 		console.error("[WS] Error:", err);
 	};
 }
@@ -2868,7 +2880,11 @@ function sendMessage(content) {
 	}
 
 	if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
-		appendSystemMessage("Connection lost. Reconnecting...", session);
+		connectWebSocket();
+		appendSystemMessage(
+			"Connection lost. Reconnecting — try again when connected.",
+			session,
+		);
 		session.isStreaming = false;
 		chatInput.disabled = false;
 		sendBtn.disabled = false;

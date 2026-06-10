@@ -1,3 +1,5 @@
+import "./config/env.js";
+
 import express from "express";
 import Database from "better-sqlite3";
 import bcrypt from "bcrypt";

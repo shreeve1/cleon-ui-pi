@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
-import dotenv from "dotenv";
-dotenv.config({ override: true });
+import "./config/env.js";
 
 import express from "express";
 import { WebSocketServer } from "ws";
@@ -26,6 +25,7 @@ import {
 	handleQuestionResponse,
 	handlePlanResponse,
 	isSessionActive,
+	getActiveSessionCount,
 } from "./pi-agent.js";
 import { getAllCommands } from "./commands.js";
 import { processUpload, validateFile } from "./uploads.js";
@@ -43,6 +43,7 @@ import {
 	replayBufferToSSE,
 	replayBufferToCallback,
 	hasActiveBuffer,
+	getBroadcastStats,
 } from "./broadcast.js";
 import { errorHandler } from "./errors.js";
 import sdkSessionManager from "./session-manager-instance.js";
@@ -51,7 +52,7 @@ import {
 	isWatching,
 	stopAll as stopAllWatchers,
 	checkLastMessageTurnState,
-	evaluateStaleStreaming,
+	evaluateAttachStaleRecovery,
 } from "./session-watcher.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -201,6 +202,8 @@ app.get("/api/health", (_req, res) => {
 			external: memory.external,
 		},
 		sdkSessions: sdkSessionManager.size,
+		activePiSessions: getActiveSessionCount(),
+		broadcast: getBroadcastStats(),
 	});
 });
 
@@ -282,43 +285,47 @@ app.post(
 			const sessionFile =
 				registrySession.piSessionFile ||
 				sdkSessionManager.getSessionFile(sessionId);
+			const turnState = sessionFile
+				? await checkLastMessageTurnState(sessionFile)
+				: null;
+			const decision = evaluateAttachStaleRecovery({
+				registryStatus: registrySession.status,
+				isActive: false,
+				sessionFile,
+				turnState,
+			});
 
-			if (sessionFile) {
-				const turnState = await checkLastMessageTurnState(sessionFile);
-				const decision = evaluateStaleStreaming(turnState);
+			if (decision.recover) {
+				setStatus(sessionId, "idle");
+				publish(username, {
+					type: "session-status",
+					sessionId,
+					status: "idle",
+				});
+				// Unblock UI
+				publish(username, { type: "done", sessionId });
 
-				if (decision.stale) {
-					setStatus(sessionId, "idle");
-					publish(username, {
-						type: "session-status",
+				logger.info(
+					"Session attach: recovered stale streaming status, updated to idle",
+					{
 						sessionId,
-						status: "idle",
-					});
-					// Unblock UI
-					publish(username, { type: "done", sessionId });
+						username,
+						reason: decision.reason,
+						messageQuietMs: decision.messageQuietMs,
+						fileQuietMs: decision.fileQuietMs,
+						lastRole: turnState?.lastRole || null,
+						stopReason: turnState?.stopReason || null,
+					},
+				);
 
-					logger.info(
-						"Session attach: detected stale streaming status, updated to idle",
-						{
-							sessionId,
-							username,
-							reason: decision.reason,
-							messageQuietMs: decision.messageQuietMs,
-							fileQuietMs: decision.fileQuietMs,
-							lastRole: turnState.lastRole,
-							stopReason: turnState.stopReason,
-						},
-					);
-
-					const updatedSession = getRegistrySession(sessionId);
-					return res.json({
-						status: "idle",
-						sessionId,
-						replayed: 0,
-						external: false,
-						session: updatedSession || null,
-					});
-				}
+				const updatedSession = getRegistrySession(sessionId);
+				return res.json({
+					status: "idle",
+					sessionId,
+					replayed: 0,
+					external: false,
+					session: updatedSession || null,
+				});
 			}
 		}
 
@@ -500,7 +507,7 @@ wss.on("connection", (ws, req) => {
 					await handleChat(msg, ws, user.username);
 					break;
 
-				case "abort":
+				case "abort": {
 					const success = await handleAbort(msg.sessionId);
 					publish(user.username, {
 						type: "abort-result",
@@ -508,8 +515,9 @@ wss.on("connection", (ws, req) => {
 						success,
 					});
 					break;
+				}
 
-				case "question-response":
+				case "question-response": {
 					const responseSuccess = await handleQuestionResponse(
 						msg.sessionId,
 						msg.toolUseId,
@@ -521,6 +529,7 @@ wss.on("connection", (ws, req) => {
 						success: responseSuccess,
 					});
 					break;
+				}
 
 				case "plan-response": {
 					const planSuccess = await handlePlanResponse(

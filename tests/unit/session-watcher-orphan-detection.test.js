@@ -5,6 +5,7 @@ import os from 'os';
 import {
   checkLastMessageTurnState,
   evaluateStaleStreaming,
+  evaluateAttachStaleRecovery,
 } from '../../server/session-watcher.js';
 
 let tmpDir;
@@ -80,6 +81,88 @@ describe('checkLastMessageTurnState', () => {
   it('returns fileMtimeMs null for a missing file', async () => {
     const state = await checkLastMessageTurnState(path.join(tmpDir, 'does-not-exist.jsonl'));
     expect(state.fileMtimeMs).toBe(null);
+  });
+});
+
+describe('evaluateAttachStaleRecovery', () => {
+  const now = Date.parse('2026-05-27T12:00:00Z');
+
+  it('recovers streaming inactive sessions when no session file is known', () => {
+    const result = evaluateAttachStaleRecovery({
+      registryStatus: 'streaming',
+      isActive: false,
+      sessionFile: null,
+      turnState: null,
+    }, now);
+    expect(result.recover).toBe(true);
+    expect(result.reason).toBe('missing-session-file');
+  });
+
+  it('recovers streaming inactive sessions when turn state has no usable file mtime', () => {
+    const result = evaluateAttachStaleRecovery({
+      registryStatus: 'streaming',
+      isActive: false,
+      sessionFile: '/tmp/session.jsonl',
+      turnState: {
+        lastRole: null,
+        timestamp: null,
+        stopReason: null,
+        fileMtimeMs: null,
+      },
+    }, now);
+    expect(result.recover).toBe(true);
+    expect(result.reason).toBe('unusable-turn-state');
+  });
+
+  it('does not recover active streaming sessions', () => {
+    const result = evaluateAttachStaleRecovery({
+      registryStatus: 'streaming',
+      isActive: true,
+      sessionFile: null,
+      turnState: null,
+    }, now);
+    expect(result.recover).toBe(false);
+  });
+
+  it('does not recover non-streaming sessions', () => {
+    const result = evaluateAttachStaleRecovery({
+      registryStatus: 'idle',
+      isActive: false,
+      sessionFile: null,
+      turnState: null,
+    }, now);
+    expect(result.recover).toBe(false);
+  });
+
+  it('delegates normal stale decisions to evaluateStaleStreaming', () => {
+    const result = evaluateAttachStaleRecovery({
+      registryStatus: 'streaming',
+      isActive: false,
+      sessionFile: '/tmp/session.jsonl',
+      turnState: {
+        lastRole: 'assistant',
+        stopReason: 'stop',
+        timestamp: new Date(now - 5000),
+        fileMtimeMs: now - 5000,
+      },
+    }, now);
+    expect(result.recover).toBe(true);
+    expect(result.reason).toBe('message-age');
+  });
+
+  it('keeps fresh inactive streaming sessions streaming', () => {
+    const result = evaluateAttachStaleRecovery({
+      registryStatus: 'streaming',
+      isActive: false,
+      sessionFile: '/tmp/session.jsonl',
+      turnState: {
+        lastRole: 'assistant',
+        stopReason: 'toolUse',
+        timestamp: new Date(now - 60_000),
+        fileMtimeMs: now - 2_000,
+      },
+    }, now);
+    expect(result.recover).toBe(false);
   });
 });
 
