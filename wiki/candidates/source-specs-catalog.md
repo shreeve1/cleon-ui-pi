@@ -35,12 +35,12 @@ Tight catalog of feature specs at the repo root. Mixed shipping status: some shi
 
 - Promote `favorite-projects-feature.md` as a shipped feature reference if/when a concept page is needed.
 - Keep `at-mention-file-search.md`, `file-paste-upload-feature.md`, `plan-mode-question-display.md` as partial-status references; revisit if a user reports a bug in one of those surfaces and verify shipping status against code.
-- Treat `add-global-and-project-slash-commands.md` status as superseded by `wiki/candidates/concept-slash-skill-discovery.md`; do not use this historical spec to remove or narrow `server/commands.js`.
+- Treat `add-global-and-project-slash-commands.md` status as superseded by `wiki/concepts/concept-slash-skill-discovery.md`; do not use this historical spec to remove or narrow `server/commands.js`.
 - Defer `chat-mode-toggle-button.md` — it is not wired up.
 - `lightweight-claude-ui.md` is umbrella context only. Don't re-ingest unless someone asks specifically about the pre-Pi era.
 
 ## Cross-references
 
-- Slash skill discovery current state → `wiki/candidates/concept-slash-skill-discovery.md`.
+- Slash skill discovery current state → `wiki/concepts/concept-slash-skill-discovery.md`.
 - README staleness vs. current state → `wiki/sources/source-readme.md`.
 - Current backend → `wiki/entities/entity-server-index.md`, `wiki/entities/entity-server-pi-agent.md`.

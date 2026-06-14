@@ -1,7 +1,7 @@
 {
-  "name": "cleon-ui",
+  "name": "cleon-ui-pi",
   "version": "1.0.0",
-  "description": "Cleon UI - Lightweight mobile-first web interface for Claude Code with retro neon aesthetics",
+  "description": "Cleon UI Pi - Lightweight mobile-first web interface for Pi Coding Agent with retro neon aesthetics",
   "author": "James Schriever",
   "type": "module",
   "main": "server/index.js",

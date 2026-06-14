@@ -157,3 +157,17 @@ Append entries with this format:
 - Inputs: user report that web console model dropdown keeps reverting to one z.ai GLM option; `wiki/index.md`; `wiki/ROUTING.md`; `wiki/CLAIMS.md`; `wiki/candidates/source-design-plans-history.md`; live `/api/models` probe; `config/models.json`; `~/.pi/agent/models.json`; `server/models.js`; `public/app.js`; git history for `config/models.json`
 - Outputs: no wiki knowledge pages changed; diagnostic evidence recorded in this log entry
 - Notes: Live `/api/models` returns only `zai/glm-5.1` because repo-tracked `config/models.json` contains only that model while Pi registry contains 14 models. Recurrence appears caused by dual model registries and tracked config edits narrowing the UI allowlist during prior mismatch/error fixes.
+
+## [2026-06-14] query | Prime project orientation
+
+- Actor: Pi agent (prime skill)
+- Inputs: `wiki/index.md`, `wiki/ROUTING.md`, `wiki/README.md`, promoted wiki pages, selected candidate pages, `README.md`, `CLAUDE.md`, `package.json`, key source files under `server/` and `public/`, git status/log
+- Outputs: no knowledge pages changed; orientation report returned in chat; this log entry records wiki query use
+- Notes: Verified current model dropdown implementation now sources Pi `ModelRegistry` through `server/models.js`; `config/models.json` currently only sets default and no allowlist. Noted `.env.example` still defaults to port 3010 while project docs describe operational port 3015.
+
+## [2026-06-14] promote+update | Pi project identity and concept pages
+
+- Actor: Pi agent
+- Inputs: user correction that app is single-user, built for Pi Coding Agent/Pi coding tool, uses port 3015, CORS private-IP behavior is acceptable behind firewall, and candidate concept pages should be promoted
+- Outputs: updated `README.md`, `.env.example`, `package.json`, `package-lock.json`, `server/index.js`, `CLAUDE.md`; promoted `wiki/candidates/concept-pi-auth-boundary.md` → `wiki/concepts/concept-pi-auth-boundary.md`; promoted `wiki/candidates/concept-slash-skill-discovery.md` → `wiki/concepts/concept-slash-skill-discovery.md`; updated `wiki/index.md`, `wiki/ROUTING.md`, `wiki/CLAIMS.md`, `wiki/sources/source-readme.md`, `wiki/sources/source-claude-md.md`, `wiki/entities/entity-server-index.md`, and `wiki/candidates/source-specs-catalog.md`
+- Notes: Port fallback and env example now use 3015. CORS behavior left unchanged. Promoted concepts now authoritative for Pi auth boundary and `/skill:<name>` slash skill discovery.

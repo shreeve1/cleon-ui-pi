@@ -20,6 +20,8 @@
 
 | Page | Summary | Sources | Updated |
 |------|---------|---------|---------|
+| [concept-pi-auth-boundary](concepts/concept-pi-auth-boundary.md) | Auth/config boundary: Cleon UI Pi delegates provider auth to Pi under `~/.pi/agent/`; do not require provider API keys in app `.env`. | `wiki/raw/sessions/2026-05-28-pi-auth-correction.md`, `README.md`, `CLAUDE.md`, `.env.example` | 2026-06-14 |
+| [concept-slash-skill-discovery](concepts/concept-slash-skill-discovery.md) | Canonical slash-menu skill discovery behavior: preserve `/skill:<name>` commands and Pi-compatible skill locations to avoid recurring overwrites. | `wiki/raw/sessions/2026-05-30-slash-skill-discovery-preservation.md`, `server/commands.js`, `tests/unit/commands.test.js` | 2026-06-14 |
 
 ## Analyses
 
@@ -35,5 +37,3 @@ Candidate rows are discoverability aids only; do not treat them as promoted know
 |-----------|---------|---------|---------|--------|
 | [source-design-plans-history](candidates/source-design-plans-history.md) | Catalog of `docs/plans/` (message-formatting, OMP integration, model dropdown, OMP→Pi migration). | `wiki/raw/docs-plans/*.md` | 2026-05-27 | candidate — historical catalog |
 | [source-specs-catalog](candidates/source-specs-catalog.md) | Catalog of `specs/` (slash commands, @-mention, mode toggle, favorites, file paste/upload, lightweight-claude-ui, plan-mode question); slash-command status superseded by `concept-slash-skill-discovery`. | `wiki/raw/specs/*.md`, `wiki/raw/sessions/2026-05-30-slash-skill-discovery-preservation.md` | 2026-05-27 | candidate — historical catalog, partially superseded |
-| [concept-pi-auth-boundary](candidates/concept-pi-auth-boundary.md) | Auth/config boundary: Cleon UI Pi delegates provider auth to Pi under `~/.pi/agent/`; do not require `ANTHROPIC_API_KEY` in app `.env`. | `wiki/raw/sessions/2026-05-28-pi-auth-correction.md` | 2026-05-28 | candidate — session-derived correction |
-| [concept-slash-skill-discovery](candidates/concept-slash-skill-discovery.md) | Canonical slash-menu skill discovery behavior: preserve `/skill:<name>` commands and Pi-compatible skill locations to avoid recurring overwrites. | `wiki/raw/sessions/2026-05-30-slash-skill-discovery-preservation.md`, `server/commands.js`, `tests/unit/commands.test.js` | 2026-05-30 | candidate — anti-regression guidance |

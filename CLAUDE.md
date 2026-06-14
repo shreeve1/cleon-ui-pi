@@ -99,7 +99,7 @@ The `ecosystem.config.cjs` uses `cwd: __dirname` for portability. Only `NODE_ENV
 
 **Symptom**: Server crash loop, logs show `EADDRINUSE: address already in use`
 
-**Cause**: Another process (often `cleon-ui` on port 3010) using the same port, or PM2 env vars not loading properly.
+**Cause**: Another process using port 3015, or PM2 env vars not loading properly.
 
 **Fix**:
 ```bash
@@ -192,7 +192,7 @@ npm test              # Run vitest
 ### Key Files for Debugging
 
 - `server/index.js:61-89` — CORS configuration
-- `server/index.js:515` — PORT fallback (`process.env.PORT || 3010`)
+- `server/index.js:515` — PORT fallback (`process.env.PORT || 3015`)
 - `server/pi-agent.js` — Pi SDK integration, session handling
 - `server/sdk-session-manager.js` — Session lifecycle, `~/.pi/agent/cleon-sessions.json`
 

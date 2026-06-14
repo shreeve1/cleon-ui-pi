@@ -17,7 +17,7 @@ Entry point (`#!/usr/bin/env node`) for the Cleon UI Pi backend. Boots Express H
 
 ## Responsibilities
 
-- Bootstrap Express + WebSocket server, default port 3010 (operational deploy uses 3015 via `.env`).
+- Bootstrap Express + WebSocket server, default port 3015 (configurable via `.env`).
 - Apply `helmet` CSP (HSTS/COOP/CORP disabled for local HTTP), `cors` origin validation, and `express-rate-limit` throttling.
 - Route WebSocket messages (`chat`, `abort`, `question-response`, `plan-response`, `close-session`) to handlers exported by `server/pi-agent.js`.
 - Maintain the per-user Server-Sent Events stream that snapshots session state and replays broadcast buffers.
@@ -45,7 +45,7 @@ Entry point (`#!/usr/bin/env node`) for the Cleon UI Pi backend. Boots Express H
 | Session attach endpoint | 249–388 | stale detection, CLI watcher, buffer replay |
 | SSE stream | 390–446 | 10s heartbeat, state snapshot, per-session replay |
 | WebSocket handler | 486–590 | dispatch + error/close events |
-| PORT fallback | ~515 | `process.env.PORT \|\| 3010` |
+| PORT fallback | ~515 | `process.env.PORT \|\| 3015` |
 | Graceful shutdown | 619–710 | staged 500/800/300 ms windows |
 
 ## External deps
@@ -61,7 +61,7 @@ Entry point (`#!/usr/bin/env node`) for the Cleon UI Pi backend. Boots Express H
 
 ## Ops gotchas
 
-- **CORS private-IP bypass**: requests from `127.0.0.1`, `localhost`, 10.x.x.x, 172.16–31.x.x, and 192.168.x.x are auto-allowed regardless of `ALLOWED_ORIGINS`. Treat any LAN as trusted; do not expose this server directly to an untrusted local network.
+- **CORS private-IP auto-allow**: requests from `127.0.0.1`, `localhost`, 10.x.x.x, 172.16–31.x.x, and 192.168.x.x are auto-allowed regardless of `ALLOWED_ORIGINS`. This is acceptable behind the intended firewall; do not expose this server directly to an untrusted local network.
 - **Stale-streaming detection** keys on `stopReason !== "toolUse"` + last-message age > 3 s. If wrong, UI hangs on attach.
 - **Reverse-proxy idle timeout**: SSE heartbeat (10 s) prevents Nginx/Caddy from closing connections at ~60 s idle. Do not remove without raising the proxy timeout.
 - **PM2 kill window**: total graceful shutdown is ~2 s. If PM2 `kill_timeout < 3000`, processes may be force-terminated mid-flush.

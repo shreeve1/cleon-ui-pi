@@ -22,7 +22,7 @@ User-facing project guide. Covers: features, quick-start install, environment va
 
 - **Historical Note** (lines 3) — documents the Claude Lite → Cleon UI → Cleon UI Pi lineage and the RPC-subprocess → in-process-SDK migration.
 - **Features** (lines 7-18) — aligned with current code (multi-tab session sync, WebSocket dispatch + SSE streaming, paste/upload).
-- **Quick Start** (lines 22-49) — snapshot prerequisites included Anthropic API key OR `~/.pi/agent/auth.json`; this auth setup wording is now stale. Current guidance: Cleon UI Pi delegates provider auth to Pi config under `~/.pi/agent/` (see `wiki/candidates/concept-pi-auth-boundary.md`). Pi SDK model registry remains at `~/.pi/agent/models.json`; clone URL fixed to `shreeve1/cleon-ui-pi`; default browser URL `http://localhost:3015`.
+- **Quick Start** (lines 22-49) — snapshot prerequisites included Anthropic API key OR `~/.pi/agent/auth.json`; this auth setup wording is now stale. Current guidance: Cleon UI Pi delegates provider auth to Pi config under `~/.pi/agent/` (see `wiki/concepts/concept-pi-auth-boundary.md`). Pi SDK model registry remains at `~/.pi/agent/models.json`; clone URL fixed to `shreeve1/cleon-ui-pi`; default browser URL `http://localhost:3015`.
 - **Configuration** (lines 60-95) — `.env` is source of truth via `dotenv override:true`; `PI_BINARY` removed; snapshot documented `ANTHROPIC_API_KEY`, now superseded by `C-0035`; optional `SDK_MAX_CONCURRENT` / `SDK_IDLE_TIMEOUT_MS` tuning surfaced.
 - **Model Registry** (lines 97-99) — explicitly documents the `config/models.json` ↔ `~/.pi/agent/models.json` coupling and the silent-fallback failure mode.
 - **Project Structure** (lines 105-127) — file tree updated to current `server/` layout (`index.js`, `pi-agent.js`, `sdk-session-manager.js`, `auth.js`, `models.js`); adds `config/models.json` and `ecosystem.config.cjs`.
@@ -47,7 +47,7 @@ No new entities beyond those already promoted/candidate. Reaffirms: `server/inde
 
 ## Notes
 
-- Auth setup wording in this 2026-05-27 snapshot is superseded by `C-0035` / `wiki/candidates/concept-pi-auth-boundary.md`: current docs no longer require `ANTHROPIC_API_KEY` in Cleon UI Pi `.env`.
+- Auth setup wording in this 2026-05-27 snapshot is superseded by `C-0035` / `wiki/concepts/concept-pi-auth-boundary.md`: current docs no longer require `ANTHROPIC_API_KEY` in Cleon UI Pi `.env`.
 - README is a living doc; re-snapshot on substantive ops/architecture changes.
 - Inline line numbers in this candidate point at `wiki/raw/readme-2026-05-27-rewrite.md`, not the current repo `README.md` — repo line numbers may drift with future edits.
 - Promotion candidate: low-risk, well-cited, eligible for auto-promotion to `wiki/sources/`.

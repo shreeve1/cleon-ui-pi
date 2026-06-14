@@ -27,13 +27,13 @@ Does not cover: WebSocket message protocol, frontend SPA wiring, JWT auth intern
 - **Models** — `config/models.json` must match Pi SDK registry at `~/.pi/agent/models.json` exactly. See lines 51-60.
 - **PM2 Operations** — `npm run pm2`, `npm run pm2:restart`, `npm run pm2:logs`, `npm run pm2:stop`. `ecosystem.config.cjs` uses `cwd: __dirname` for portability; only `NODE_ENV` is set there. See lines 62-78.
 - **Common Issues** — four incidents documented with symptom/cause/fix:
-  - EADDRINUSE / port conflict (often from `cleon-ui` on port 3010 colliding). Fix: `pm2 delete cleon-ui-pi && pm2 start ecosystem.config.cjs`. Lines 82-93.
+  - EADDRINUSE / port conflict on configured port. Fix: `pm2 delete cleon-ui-pi && pm2 start ecosystem.config.cjs`. Lines 82-93.
   - CORS rejection. Fix: add origin to `ALLOWED_ORIGINS` in `.env`, then `npm run pm2:restart`. Lines 95-106.
   - Model not found in Pi registry. Fix: align `config/models.json` to `~/.pi/agent/models.json`. Lines 108-114.
   - Shell env vars overriding `.env`. Fix already applied via `override: true`; if persisting, `unset PORT ALLOWED_ORIGINS`. Lines 116-127.
   - Connection lost UI error. Usually PM2 crash loop — check `pm2 logs cleon-ui-pi --lines 30`. Lines 129-141.
 - **Git** — uses personal SSH key alias `github-personal` → `git@github-personal:shreeve1/cleon-ui-pi.git`. SSH config block documented. Lines 143-157.
-- **Debug pointers** — `server/index.js:61-89` (CORS), `server/index.js:515` (PORT fallback `process.env.PORT || 3010`), `server/pi-agent.js` (Pi SDK), `server/sdk-session-manager.js` (sessions, `~/.pi/agent/cleon-sessions.json`). Lines 176-181.
+- **Debug pointers** — `server/index.js:61-89` (CORS), `server/index.js:515` (PORT fallback now `process.env.PORT || 3015` in live code), `server/pi-agent.js` (Pi SDK), `server/sdk-session-manager.js` (sessions, `~/.pi/agent/cleon-sessions.json`). Lines 176-181.
 - **Pi SDK** — `@mariozechner/pi-coding-agent`, session mappings in `~/.pi/agent/cleon-sessions.json`, `stripAnsi()` at `pi-agent.js:18-24`. Lines 183-187.
 - **Architecture** — vanilla JS SPA frontend, Express + ws backend, JWT/bcrypt auth, better-sqlite3 at `~/.cleon-ui/`, SSE for AI streaming, PM2 with ecosystem config. Lines 189-196.
 
@@ -58,6 +58,6 @@ Does not cover: WebSocket message protocol, frontend SPA wiring, JWT auth intern
 ## Notes
 
 - Source is a living doc; re-snapshot whenever ops content shifts.
-- Auth setup guidance in this 2026-05-27 snapshot is superseded by `C-0035` / `wiki/candidates/concept-pi-auth-boundary.md`: current docs no longer require `ANTHROPIC_API_KEY` in Cleon UI Pi `.env`.
+- Auth setup guidance in this 2026-05-27 snapshot is superseded by `C-0035` / `wiki/concepts/concept-pi-auth-boundary.md`: current docs no longer require `ANTHROPIC_API_KEY` in Cleon UI Pi `.env`.
 - Inline file:line citations point to current `server/` code; verify before quoting in answers.
 - Promoted 2026-05-27 under auto-promote-low-risk policy: well-cited, no contradictions.

@@ -1,9 +1,9 @@
 ---
 title: Slash Skill Discovery
 type: concept
-status: candidate
+status: promoted
 created: 2026-05-30
-updated: 2026-05-30
+updated: 2026-06-14
 sources:
   - wiki/raw/sessions/2026-05-30-slash-skill-discovery-preservation.md
   - server/commands.js

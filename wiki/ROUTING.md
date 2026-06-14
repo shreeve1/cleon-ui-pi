@@ -23,7 +23,7 @@ Use this file after reading `index.md` when narrowing a wiki-backed question to 
 - Pages:
   - `wiki/sources/source-claude-md.md`
   - `wiki/entities/entity-server-index.md`
-  - `wiki/candidates/concept-pi-auth-boundary.md` (candidate — non-authoritative session correction)
+  - `wiki/concepts/concept-pi-auth-boundary.md`
 - Keywords: .env, dotenv override, PORT, HOST, JWT_SECRET, LOG_LEVEL, shell env override, SDK_MAX_CONCURRENT, SDK_IDLE_TIMEOUT_MS, Pi auth, ~/.pi/agent, ANTHROPIC_API_KEY stale
 
 ## Pi SDK Integration
@@ -33,8 +33,8 @@ Use this file after reading `index.md` when narrowing a wiki-backed question to 
   - `wiki/entities/entity-server-pi-agent.md`
   - `wiki/entities/entity-server-sdk-session-manager.md`
   - `wiki/candidates/source-design-plans-history.md` (candidate — OMP→Pi migration history)
-  - `wiki/candidates/concept-pi-auth-boundary.md` (candidate — non-authoritative session correction)
-  - `wiki/candidates/concept-slash-skill-discovery.md` (candidate — non-authoritative anti-regression guidance)
+  - `wiki/concepts/concept-pi-auth-boundary.md`
+  - `wiki/concepts/concept-slash-skill-discovery.md`
 - Keywords: pi-agent.js, sdk-session-manager.js, @mariozechner/pi-coding-agent, cleon-sessions.json, stripAnsi, model registry, ~/.pi/agent/, Pi auth, AgentSession, session.prompt, toolCallId, set_model, slash commands, /skill, /skill:discover, skills, ~/.claude/skills, ~/.agents/skills
 
 ## Auth & Sessions
@@ -51,7 +51,7 @@ Use this file after reading `index.md` when narrowing a wiki-backed question to 
   - `wiki/analyses/analysis-session-sync-bugs.md`
   - `wiki/candidates/source-specs-catalog.md` (candidate — favorites, @-mention, paste/upload, plan-mode question; slash-command status partially superseded)
   - `wiki/candidates/source-design-plans-history.md` (candidate — message formatting, model dropdown)
-  - `wiki/candidates/concept-slash-skill-discovery.md` (candidate — non-authoritative anti-regression guidance)
+  - `wiki/concepts/concept-slash-skill-discovery.md`
 - Keywords: public/, app.js, style.css, neon, SPA, vanilla JS, mobile-first, closeSession, auto-adopt, model dropdown, favorite-btn, attachments, slash menu, /api/commands, server/commands.js, /skill:discover
 
 ## Architecture & Decisions

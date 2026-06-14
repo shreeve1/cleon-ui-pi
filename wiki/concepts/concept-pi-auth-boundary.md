@@ -1,9 +1,9 @@
 ---
 title: Concept — Pi Auth Boundary
 type: concept
-status: candidate
+status: promoted
 created: 2026-05-28
-updated: 2026-05-28
+updated: 2026-06-14
 sources:
   - wiki/raw/sessions/2026-05-28-pi-auth-correction.md
   - README.md
@@ -38,4 +38,4 @@ This correction was applied to live docs:
 
 ## Notes
 
-This candidate supersedes stale Anthropic-key setup guidance in earlier promoted source summaries based on 2026-05-27 snapshots. Those raw snapshots remain immutable historical sources; current live docs should be preferred for this auth-boundary rule.
+This concept supersedes stale Anthropic-key setup guidance in earlier promoted source summaries based on 2026-05-27 snapshots. Those raw snapshots remain immutable historical sources; current live docs should be preferred for this auth-boundary rule.

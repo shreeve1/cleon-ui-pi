@@ -14,7 +14,7 @@ A lightweight, mobile-first web interface for the Pi Coding Agent featuring a re
 - **File Upload & Paste**: Drag-and-drop and clipboard support for images, text, PDFs, and markdown
 - **Slash Commands**: Quick access to common actions
 - **Favorites System**: Pin frequently-used projects
-- **User Authentication**: Multi-user support with JWT-based auth
+- **User Authentication**: Single-user setup (first registered account only) with JWT-based auth
 - **Token Usage Tracking**: Monitor API usage per session
 
 ## Quick Start
@@ -289,7 +289,7 @@ npm test      # vitest
 
 ### EADDRINUSE / "Address already in use"
 
-Usually another process (often the original `cleon-ui` on port 3010) is holding the port, or PM2 is fighting a stale env. Reset:
+Usually another process is holding port 3015, or PM2 is fighting a stale env. Reset:
 
 ```bash
 pm2 delete cleon-ui-pi
