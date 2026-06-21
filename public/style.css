@@ -1624,8 +1624,15 @@ body::after {
 }
 
 .message.assistant li {
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   line-height: 1.6;
+}
+
+/* Soft line breaks (breaks:true) get vertical rhythm so summaries don't clump */
+.message.assistant br {
+  content: "";
+  display: block;
+  margin-bottom: 6px;
 }
 
 /* Nested lists: no extra bottom margin, tighter indent */
