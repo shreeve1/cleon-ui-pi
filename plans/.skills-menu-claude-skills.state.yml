@@ -1,0 +1,36 @@
+plan_file: plans/skills-menu-claude-skills.md
+status: build_only
+build_audits:
+  - wave: 1
+    reviewer: pi
+    reviewer_model: openai-codex/gpt-5.5
+    started: "2026-06-28T18:26:00Z"
+    files_audited: ["server/commands.js", "tests/unit/commands.test.js"]
+    outcome: passed
+    skip_reason: null
+    error_excerpt: null
+    attempts:
+      - attempt: 1
+        kind: initial
+        started: "2026-06-28T18:26:00Z"
+        findings:
+          critical: []
+          warning:
+            - "[WARNING] Tests do not prove new `.claude` discovery paths\n  Detail: `~/.claude/skills` is also added via settings at tests/unit/commands.test.js:50-52, so `/skill:diagnose` would pass without server/commands.js:390; project test uses non-git fallback at tests/unit/commands.test.js:41-55, so it would pass without git-root resolution at server/commands.js:383-384.\n  Affected files: tests/unit/commands.test.js\n  Suggested fix: Add/adjust tests so one global `~/.claude/skills` skill is discovered with no settings entry, and one project skill lives at `<gitRoot>/.claude/skills/...` while `getAllCommands()` receives a nested project path under that git root."
+          note: []
+        counts: { critical: 0, warning: 1, note: 0 }
+        warning_resolution: >
+          Resolved 2026-06-28 by tightening tests/unit/commands.test.js (test-only;
+          server/commands.js unchanged from the audited wave-1 diff). Changes:
+          (1) settings.json set to {} so /skill:diagnose resolves ONLY via the
+          explicit getPiSkills ~/.claude/skills entry, not getConfiguredSkillPaths;
+          (2) added Case B — git-rooted project with skill at <gitRoot>/.claude/skills
+          and getAllCommands called with a nested <gitRoot>/sub/dir, forcing
+          findGitRepoRoot walk-up; (3) Case A kept (no-git project) to pin the
+          ?? projectPath fallback via a separate getAllCommands call.
+          Mutation check: extracting pre-wave server/commands.js (0 .claude/skills
+          refs) from snapshot tree a51f031534 makes the test FAIL at
+          /skill:diagnose and /skill:rooted-suite; restoring the fix (3 refs)
+          passes. Assertions proven load-bearing. Re-audit skipped — production
+          diff byte-identical to the already-passed attempt 1; only test rigor
+          changed, verified by mutation.

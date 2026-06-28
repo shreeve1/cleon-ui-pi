@@ -377,10 +377,18 @@ async function getPiSkills(projectPath = null) {
 	);
 	const ancestorAgentsDirs = await getAncestorAgentsSkillDirs(projectPath);
 	const configuredSkillPaths = await getConfiguredSkillPaths(projectPath);
+	// Project .claude/skills resolved at the git root to mirror cross-agent.ts's
+	// findProjectRoot (walks up to nearest .git, falls back to cwd on no-git).
+	// This is the location the live agent actually loads via collectClaudeDirs.
+	const claudeRoot = projectPath
+		? ((await findGitRepoRoot(projectPath)) ?? projectPath)
+		: null;
 
 	const skillPaths = [
 		path.join(agentDir, "skills"),
 		path.join(home, ".agents", "skills"),
+		path.join(home, ".claude", "skills"),
+		...(claudeRoot ? [path.join(claudeRoot, ".claude", "skills")] : []),
 		...ancestorAgentsDirs,
 		...extensionSkillDirs,
 		...configuredSkillPaths,
